@@ -5,6 +5,7 @@ open System.IO
 open Fantomas
 open FSharp.Compiler
 open FSharp.Compiler.Syntax
+open FSharp.Compiler.SyntaxTrivia
 open FSharp.Compiler.Xml
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Text
@@ -33,10 +34,10 @@ type SynExpr with
             false,
             false,
             SynSimplePats.SimplePats([], range.Zero),//dunno about this
-            Some range.Zero,
             expr,
             Some(args,expr),
-            range.Zero
+            range.Zero,
+            SynExprLambdaTrivia.Zero
         )
 
 let createLetDecl bindingName bindingBody =
@@ -55,7 +56,8 @@ let createLetDecl bindingName bindingBody =
               None,
               bindingBody,
               Text.range(),
-              DebugPointAtBinding.Yes (Text.range())
+              DebugPointAtBinding.Yes (Text.range()),
+              SynBindingTrivia.Zero
            )
         
         ],
