@@ -215,12 +215,12 @@ let rec getUntypedParseTree =
 
 let toLower str =
     async {
-        match! getTypedParseTree str with
+        match! CompileHelpers.getTypedParseTree str with
         | Ok ([ decls ]) ->    
             return!
                 decls 
                 |> getUntypedParseTree
-                |> writeFormated
+                |> CompileHelpers.writeFormated
         | Error s -> return failwithf "%s" s
         | _ -> return failwith ""
     }
