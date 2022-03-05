@@ -153,6 +153,7 @@ type Effect =
 
 
     static member Create(x: ('a -> Result<'b, 'e>)) = Eff(x >> ValueTask.FromResult)
+
 type EnvBuilder() =
     member _.Bind(eff, f) = Effect.bind f eff
     member _.Return(a) = Effect.ret a
@@ -169,6 +170,9 @@ type EnvBuilder() =
     member _.MergeSources(a, b) = Effect.zip a b id
 
     member _.Delay (f: unit -> Effect<'s, 'a, 'e>) = f
+
+    [<CustomOperation("test")>]
+    member _.Test(t, _) = t
 
     member _.Run f = f()
 

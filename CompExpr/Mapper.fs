@@ -191,6 +191,11 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
     | TypeLambda (_, expr) -> 
         let bod = toUntyped expr
         SynExpr.LetOrUse(false, false, [  ], bod, Text.range.Zero)
+    | Sequential (ex1, ex2) ->
+        let dbg = DebugPointAtSequential.SuppressBoth
+        let e1 = toUntyped ex1
+        let e2 = toUntyped ex2
+        SynExpr.Sequential(dbg,false,e1,e2,Text.Range.Zero)
     | _a -> failwith ""
 
 let rec getUntypedParseTree =
