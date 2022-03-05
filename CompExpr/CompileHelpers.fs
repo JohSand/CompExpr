@@ -83,9 +83,9 @@ let getTypedParseTree (input) : Async<_> =
         | FSharpCheckFileAnswer.Aborted -> return Error("Aborted")
         | FSharpCheckFileAnswer.Succeeded res ->
             for d in res.Diagnostics do 
-                printfn "%s" d.Message
+                printfn $"%s{d.Message}"
             match res.ImplementationFile with
-            | None -> return Error(sprintf "%A" res.Diagnostics)
+            | None -> return Error $"%A{res.Diagnostics}"
             | Some fc -> return Ok(fc.Declarations)
     }
 
