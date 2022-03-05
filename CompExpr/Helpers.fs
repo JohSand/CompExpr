@@ -105,6 +105,7 @@ let getTypedParseTree (input) : Async<_> =
                yield "--target:exe" |]
         )
 
+
     async {
         let input = Text.SourceText.ofString input
         let! _, typedRes = checker.ParseAndCheckFileInProject(Path.ChangeExtension(tmpName, ".fs"), 0, input, projectOptions)
