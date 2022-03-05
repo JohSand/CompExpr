@@ -92,7 +92,8 @@ let private checker =
 
 let getTypedParseTree (input) : Async<_> =
     let tmpName = Path.GetTempFileName()
-
+    let dep = Path.ChangeExtension(Process.GetCurrentProcess().ProcessName, ".dll")
+    //todo ensure we link in all dlls?
     let projectOptions =   
         checker.GetProjectOptionsFromCommandLineArgs(
             Path.ChangeExtension(tmpName, ".fsproj"),
@@ -100,7 +101,7 @@ let getTypedParseTree (input) : Async<_> =
                yield "--flaterrors"
                yield "--targetprofile:netcore"
                yield Path.ChangeExtension(tmpName, ".fs")
-               yield "-r:" + Path.ChangeExtension(Process.GetCurrentProcess().ProcessName, ".dll") 
+               yield "-r:" + "CompExpr.dll"
                yield "--target:exe" |]
         )
 

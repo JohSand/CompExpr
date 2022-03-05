@@ -77,14 +77,7 @@ let e() =
 
 
 
-async {
-    match! Helpers.getTypedParseTree fsharp with
-    | Ok ([ decls ]) ->    
-        let! pp = 
-            decls 
-            |> Mapper.getUntypedParseTree 
-            |> Helpers.writeFormated
-        printfn "%s" pp    
-    | Error s -> failwithf "%s" s
-    | _ -> failwith ""
+async {   
+    let! pp = Mapper.toLower fsharp
+    printfn "%s" pp    
 } |> Async.RunSynchronously

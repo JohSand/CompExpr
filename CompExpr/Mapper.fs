@@ -213,3 +213,14 @@ let rec getUntypedParseTree =
     /// Represents the declaration of a static initialization action
     | FSharpImplementationFileDeclaration.InitAction _ -> failwith ""
 
+let toLower str =
+    async {
+        match! getTypedParseTree str with
+        | Ok ([ decls ]) ->    
+            return!
+                decls 
+                |> getUntypedParseTree
+                |> writeFormated
+        | Error s -> return failwithf "%s" s
+        | _ -> return failwith ""
+    }

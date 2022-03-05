@@ -6,7 +6,6 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Compile Include="Transposable.fs" />
 		<Compile Include="Builder.fs" />
 		<Compile Include="Helpers.fs" />
 		<Compile Include="Mapper.fs" />
