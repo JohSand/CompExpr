@@ -59,18 +59,30 @@ type ScenarioStateBuilder() =
 let scenario = ScenarioStateBuilder()
 let generateScenario() : State<unit> = failwith ""
 
+type DummyType() =
+    interface System.IAsyncDisposable with
+        member _.DisposeAsync () = ValueTask()
+let e() = 
+    task {
+        try
+            do! Task.Delay(1)
+        finally
+            do ()
 
+    }
 let fsharp =
     "\
 module A
 open CompExpr.Program
+open System.Threading.Tasks
 
 let e() = 
-    scenario {
+    task {
         try
-            do! generateScenario()
-        with _e ->
+            do! Task.Delay(1)
+        finally
             do ()
+
     }
     "
 

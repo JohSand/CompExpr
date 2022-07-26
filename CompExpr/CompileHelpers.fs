@@ -68,7 +68,8 @@ let getTypedParseTree (input) : Async<_> =
             Path.ChangeExtension(tmpName, ".fsproj"),
             [| yield "--out:" + Path.ChangeExtension(tmpName, ".dll")
                yield "--flaterrors"
-               yield "--targetprofile:netcore"
+               yield "--targetprofile:netstandard"
+
                yield Path.ChangeExtension(tmpName, ".fs")
                yield! deps
                yield "--target:exe" |]
@@ -77,10 +78,15 @@ let getTypedParseTree (input) : Async<_> =
 
     async {
         let input = Text.SourceText.ofString input
-        let! _, typedRes = checker.ParseAndCheckFileInProject(Path.ChangeExtension(tmpName, ".fs"), 0, input, projectOptions)
+        let! results, typedRes = checker.ParseAndCheckFileInProject(Path.ChangeExtension(tmpName, ".fs"), 0, input, projectOptions)
 
         match typedRes with
-        | FSharpCheckFileAnswer.Aborted -> return Error("Aborted")
+        | FSharpCheckFileAnswer.Aborted -> 
+            if results.Diagnostics.Length > 0 then
+                let diag = System.String.Join(System.Environment.NewLine, results.Diagnostics)
+                return Error diag
+            else
+                return Error("Aborted")
         | FSharpCheckFileAnswer.Succeeded res ->
             for d in res.Diagnostics do 
                 printfn $"%s{d.Message}"
