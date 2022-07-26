@@ -14,8 +14,8 @@
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 	<ItemGroup>
-		<PackageReference Include="Fantomas" Version="4.7.0" />
-		<PackageReference Include="FSharp.Compiler.Service" Version="41.0.3" />
+		<PackageReference Include="Fantomas" Version="4.6.0" />
+		<PackageReference Include="FSharp.Compiler.Service" Version="41.0.1" />
 	</ItemGroup>
 	<ItemGroup>
 	  <PackageReference Update="FSharp.Core" Version="6.0.3" />

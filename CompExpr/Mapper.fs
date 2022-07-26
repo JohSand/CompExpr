@@ -7,7 +7,7 @@ open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Symbols.FSharpExprPatterns
 open FSharp.Compiler.Syntax
-open FSharp.Compiler.SyntaxTrivia
+
 open FSharp.Compiler.Xml
 
 let tmpRange = Text.range()
@@ -93,8 +93,7 @@ let createBinding name body =
         None,
         body,
         Text.range(),
-        DebugPointAtBinding.Yes (Text.range()),
-        SynBindingTrivia.Zero
+        DebugPointAtBinding.Yes (Text.range())
      )
 let createIdent(args) =
     let args = args |> List.map(fun (s: string) -> s.Replace("@", "")) |> List.map(Ident.ofString) 
@@ -162,11 +161,11 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         | :? string as s ->
             SynExpr.Const(SynConst.String (s, SynStringKind.Regular,tmpRange), tmpRange)
         | _ -> failwith ""
-    | Let ((a, ex1, _dbg), ex2) -> 
+    | Let ((a, ex1), ex2) -> 
         let body = toUntyped ex2
         let binding = (toUntyped ex1)
         let f = createBinding a.LogicalName binding
-        SynExpr.LetOrUse(false, false, [ f ], body, Text.range.Zero, { InKeyword = None })
+        SynExpr.LetOrUse(false, false, [ f ], body, Text.range.Zero)
         //failwith ""
     | NewUnionCase (``type``, case, []) -> 
         let arg = createTupled []
@@ -192,7 +191,7 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         SynExpr.Upcast(e, toSynType fsType, tmpRange)
     | TypeLambda (_, expr) -> 
         let bod = toUntyped expr
-        SynExpr.LetOrUse(false, false, [  ], bod, Text.range.Zero, { InKeyword = None })
+        SynExpr.LetOrUse(false, false, [  ], bod, Text.range.Zero)
     | Sequential (ex1, ex2) ->
         let dbg = DebugPointAtSequential.SuppressBoth
         let e1 = toUntyped ex1

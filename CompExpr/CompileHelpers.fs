@@ -5,7 +5,7 @@ open System.IO
 open Fantomas
 open FSharp.Compiler
 open FSharp.Compiler.Syntax
-open FSharp.Compiler.SyntaxTrivia
+
 open FSharp.Compiler.Xml
 open FSharp.Compiler.CodeAnalysis
 
@@ -25,8 +25,7 @@ let createLetDecl bindingName bindingBody =
               None,
               bindingBody,
               Text.range(),
-              DebugPointAtBinding.Yes (Text.range()),
-              SynBindingTrivia.Zero
+              DebugPointAtBinding.Yes (Text.range())
            )
         
         ],
@@ -72,6 +71,7 @@ let getTypedParseTree (input) : Async<_> =
 
                yield Path.ChangeExtension(tmpName, ".fs")
                yield! deps
+
                yield "--target:exe" |]
         )
 
@@ -96,6 +96,8 @@ let getTypedParseTree (input) : Async<_> =
     }
 
 let writeFormated members =
-    let input = createParsedFileInput members
-    CodeFormatter.FormatASTAsync(input, "/tmp.fsx", [], None, Fantomas.FormatConfig.FormatConfig.Default)
-
+    async {
+        let input = createParsedFileInput members
+        let! wat = CodeFormatter.IsValidASTAsync(input)
+        return! CodeFormatter.FormatASTAsync(input, "/tmp.fsx", [], None, Fantomas.FormatConfig.FormatConfig.Default)
+    }
