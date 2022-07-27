@@ -6,16 +6,15 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Compile Include="WorkAround.fs" />
+		<Compile Include="Helpers.fs" />
 		<Compile Include="CompileHelpers.fs" />
 		<Compile Include="Builder.fs" />
-		<Compile Include="Helpers.fs" />
 		<Compile Include="Mapper.fs" />
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 	<ItemGroup>
-		<PackageReference Include="Fantomas" Version="4.6.0" />
-		<PackageReference Include="FSharp.Compiler.Service" Version="41.0.1" />
+		<PackageReference Include="Fantomas" Version="4.7.9" />
+		<PackageReference Include="FSharp.Compiler.Service" Version="41.0.3" />
 	</ItemGroup>
 	<ItemGroup>
 	  <PackageReference Update="FSharp.Core" Version="6.0.3" />

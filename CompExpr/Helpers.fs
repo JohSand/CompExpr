@@ -2,7 +2,7 @@
 
 open FSharp.Compiler
 open FSharp.Compiler.Syntax
-
+open FSharp.Compiler.SyntaxTrivia
 open FSharp.Compiler.Text
 
 type Ident with
@@ -10,7 +10,7 @@ type Ident with
 
 type SynExpr with
     member expr.WrapInParens() =
-        SynExpr.Paren(expr, range.Zero, None, range.Zero)
+        SynExpr.Paren(expr, range.Zero, Some range.Zero, range.Zero)
 
     member expr.BodyOfLambda(arg) = expr.BodyOfLambda([ arg ])
     /// f expr
@@ -27,10 +27,11 @@ type SynExpr with
         SynExpr.Lambda(
             fromMethod = false,
             inLambdaSeq = false,
-            args = SynSimplePats.SimplePats([], range.Zero),//dunno about this
-            arrow = Some (range.Zero),
+            args = SynSimplePats.SimplePats([], expr.Range),//dunno about this
+            //arrow = Some (range.Zero),
             body = expr,
             parsedData = Some(args,expr),
-            range = range.Zero
+            range = expr.Range,
+            trivia = { ArrowRange = Some (range.Zero) }
         )
 

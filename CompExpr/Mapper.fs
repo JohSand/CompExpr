@@ -7,102 +7,20 @@ open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Symbols.FSharpExprPatterns
 open FSharp.Compiler.Syntax
-
+open FSharp.Compiler.SyntaxTrivia
 open FSharp.Compiler.Xml
 
-let tmpRange = Text.range()
+open CompExpr.CompileHelpers
 
-let makeType str =
-    SynType.LongIdent (LongIdentWithDots ([ Ident.ofString str ], []))
-
-
-
-let rec toSynType (fsType: FSharpType) =
-    if fsType.GenericArguments.Count > 0 then
-        let inner = fsType.GenericArguments |> Seq.map toSynType |> Seq.toList
-        SynType.App (
-            makeType fsType.TypeDefinition.DisplayName, //todo namespace
-            Some tmpRange, 
-            inner,// generic types 
-            [],
-            Some tmpRange, 
-            false, 
-            tmpRange)
-    else
-        makeType fsType.TypeDefinition.DisplayName
-
-let createTyped (paramName: string) paramType =
-    SynPat.Paren(
-        SynPat.Typed(
-            SynPat.Named(Ident.ofString (paramName.Replace("@", "")), false, None, tmpRange),
-            makeType paramType,
-            tmpRange
-        ),
-        tmpRange
-    ) 
-
-let getArgsFromType (fullType: FSharpType) (logicalName) =
-    if (fullType.HasTypeDefinition) then
-        createTyped 
-            logicalName
-            fullType.TypeDefinition.LogicalName
-    elif (fullType.IsTupleType) then
-        //todo
-        let tupleType =
-            SynType.Tuple(
-                fullType.IsStructTupleType, 
-                [ for _ in fullType.GenericArguments -> false, SynType.Anon(tmpRange) ],
-                tmpRange
-            )
-        SynPat.Paren(
-            SynPat.Typed(
-                SynPat.Named(Ident.ofString (logicalName.Replace("@", "")), false, None, tmpRange),
-                tupleType,
-                tmpRange
-            ),
-            tmpRange
-        ) 
-    else
-        SynPat.Paren(
-            SynPat.Named(
-                Ident.ofString (logicalName.Replace("@", "")),
-                false,
-                None,
-                tmpRange
-            ),
-            tmpRange
-        ) 
-
-let getArgs (memberOrFunctionValue: FSharpMemberOrFunctionOrValue) =
-    if memberOrFunctionValue.FullName = "unitVar" then
-        SynPat.Paren(SynPat.Const(SynConst.Unit, tmpRange),tmpRange)
-    else
-        getArgsFromType memberOrFunctionValue.FullType memberOrFunctionValue.LogicalName
-
-let createBinding name body =
-    SynBinding.SynBinding(
-        None,
-        SynBindingKind.Normal,
-        false,
-        false,
-        [],
-        PreXmlDoc.Empty,
-        SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
-        SynPat.Named(Ident.ofString name, false, None, Text.range()),
-        //SynPat.Wild(Text.range.Zero),
-        None,
-        body,
-        Text.range(),
-        DebugPointAtBinding.Yes (Text.range())
-     )
 let createIdent(args) =
     let args = args |> List.map(fun (s: string) -> s.Replace("@", "")) |> List.map(Ident.ofString) 
-    SynExpr.LongIdent(false, LongIdentWithDots(args, [ tmpRange ]), None, tmpRange)
+    SynExpr.LongIdent(false, LongIdentWithDots(args, [ Text.range.Zero ]), None, Text.range.Zero)
 
 let createTupled a =
     SynExpr.Tuple(false, a, [], Text.range.Zero)
 
 let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
+    let tmpRange = fsharpExpr.Range
     match fsharpExpr with
     | Application (expr, types, [ arg ]) -> 
         let arg = toUntyped arg
@@ -161,11 +79,15 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         | :? string as s ->
             SynExpr.Const(SynConst.String (s, SynStringKind.Regular,tmpRange), tmpRange)
         | _ -> failwith ""
-    | Let ((a, ex1), ex2) -> 
+    | Let ((a, ex1, dbg: DebugPointAtBinding), ex2) ->         
         let body = toUntyped ex2
         let binding = (toUntyped ex1)
-        let f = createBinding a.LogicalName binding
-        SynExpr.LetOrUse(false, false, [ f ], body, Text.range.Zero)
+        let f = createBinding a binding
+        let inKeyword =
+            match dbg with
+            | DebugPointAtBinding.Yes a -> Some a
+            | _ -> None
+        SynExpr.LetOrUse(false, false, [ f ], body, Option.defaultValue Text.range.Zero inKeyword, { InKeyword = inKeyword })
         //failwith ""
     | NewUnionCase (``type``, case, []) -> 
         let arg = createTupled []
@@ -191,12 +113,53 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         SynExpr.Upcast(e, toSynType fsType, tmpRange)
     | TypeLambda (_, expr) -> 
         let bod = toUntyped expr
-        SynExpr.LetOrUse(false, false, [  ], bod, Text.range.Zero)
+        SynExpr.LetOrUse(false, false, [  ], bod, Text.range.Zero, { InKeyword = Some Text.range.Zero })
     | Sequential (ex1, ex2) ->
         let dbg = DebugPointAtSequential.SuppressBoth
         let e1 = toUntyped ex1
         let e2 = toUntyped ex2
         SynExpr.Sequential(dbg,false,e1,e2,Text.Range.Zero)
+    | ValueSet(value, expr) ->
+        let binding = (toUntyped expr)
+        let f = createBinding value binding
+        SynExpr.LongIdentSet(
+            LongIdentWithDots([ Ident.ofString value.LogicalName ], [ Text.range.Zero ]),
+            binding,
+            Text.Range.Zero
+        )
+    | DefaultValue expr ->
+        let typeName =
+            expr.TypeDefinition.FullName
+            |> fun s -> s.Split(".")
+            |> Array.map Ident.ofString
+            |> List.ofArray
+        SynExpr.New(
+            false,
+            SynType.LongIdent(
+                LongIdentWithDots(typeName, [ Text.range.Zero ])
+            ),
+            SynExpr.Const(SynConst.Unit, Text.range.Zero),
+            tmpRange
+        )
+    | NewObject (f, types, exprs) ->
+
+        let pats = SynArgPats.Pats([ getArgs f ])
+        let argsToCtor = 
+            if List.isEmpty exprs then
+                SynExpr.Const(SynConst.Unit, Text.range.Zero)
+            else
+                (exprs |> List.map toUntyped |> createTupled).WrapInParens()
+        //argsToCtor.WrapInParens().ApplyTo(toUntyped expr)
+        let typeName =
+            toSynTypeFromClrType 
+                (f.ApparentEnclosingEntity).DisplayName
+                types
+        SynExpr.New(
+            false,
+            typeName,
+            argsToCtor,
+            tmpRange
+        )
     | _a -> failwith ""
 
 let rec getUntypedParseTree =
@@ -206,11 +169,11 @@ let rec getUntypedParseTree =
         [ for decl in decls do
               yield! getUntypedParseTree decl ]
     /// Represents the declaration of a member, function or value, including the parameters and body of the member
-    | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue (value, _, body: FSharpExpr) ->
+    | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue (value, args: list<list<_>>, body : FSharpExpr) ->
         //let wat = toUntyped body
-        [ value.LogicalName, toUntyped body ]
+        [ value.LogicalName, args, toUntyped body ]
     /// Represents the declaration of a static initialization action
-    | FSharpImplementationFileDeclaration.InitAction _ -> failwith ""
+    | FSharpImplementationFileDeclaration.InitAction body -> [ "anon", [], toUntyped body ]
 
 let toLower str =
     async {
