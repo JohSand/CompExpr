@@ -95,13 +95,13 @@ let a () =
 [<Fact>]
 let ``Test constructor call value type`` () =
     async {
-        let fsharp = "let a () = new System.Threading.Tasks.ValueTask<int>()"
+        let fsharp = "let a () = new System.Threading.Tasks.ValueTask<float>()"
         let! result = TextCompiler.toLower fsharp
 
         let expected =
             "\
 let a () =
-    new System.Threading.Tasks.ValueTask<int>()
+    new System.Threading.Tasks.ValueTask<float>()
 "
 
         do Assert.Equal(expected, result)
@@ -282,9 +282,9 @@ module A
 open CompExpr
 
 let e() = 
-    scenario {
+    task {
         try
-            do! generateScenario()
+            do! System.Threading.Tasks.Task.Delay(1)
         with _e ->
             do ()
     }"
@@ -292,19 +292,19 @@ let e() =
         let expected =
             "\
 let e () =
-    (fun (builder: ScenarioStateBuilder) ->
+    (fun (builder: TaskBuilder) ->
         builder.Run(
             builder.Delay (fun () ->
                 builder.TryWith(
                     builder.Delay (fun () ->
-                        builder.Bind(CompExpr.Program.generateScenario (), (fun (_arg1: unit) -> builder.Return()))),
+                        builder.Bind(System.Threading.Tasks.Task.Delay(1), (fun (_arg1: unit) -> builder.Zero()))),
                     fun (_arg2: exn) ->
                         let _e = _arg2 in
                         ()
                         builder.Zero()
                 ))
         ))
-        scenario
+        task
 "
 
         let! result = TextCompiler.toLower fsharp

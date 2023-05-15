@@ -43,8 +43,10 @@ type SynExpr with
         )
 
 
-let makeType str =
-    SynType.LongIdent(LongIdentWithDots([ Ident.ofString str ], []))
+let makeType (str: string) =
+    let typeName =
+        str |> (fun s -> s.Split(".")) |> Array.map Ident.ofString |> List.ofArray
+    SynType.LongIdent(LongIdentWithDots(typeName, []))
 
 let makeGenericType (typeName) (genericTypes) =
     SynType.App(typeName, Some tmpRange, genericTypes, [], Some tmpRange, false, tmpRange)

@@ -8,7 +8,7 @@ open FSharp.Compiler.Symbols
 open FSharp.Compiler.Symbols.FSharpExprPatterns
 open FSharp.Compiler.Syntax
 open FSharp.Compiler.SyntaxTrivia
-open FSharp.Compiler.Xml
+open FSharp.Compiler.Text
 
 open System
 
@@ -145,18 +145,10 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
             Text.Range.Zero
         )
     | DefaultValue expr ->
-        let typeName =
-            expr.TypeDefinition.FullName
-            |> fun s -> s.Split(".")
-            |> Array.map Ident.ofString
-            |> List.ofArray
+        let name = expr.TypeDefinition.FullName.Replace("`1", "")
+        let typeName = toSynTypeFromClrType name [ yield! expr.GenericArguments ]
+        SynExpr.New(false, typeName, SynExpr.Const(SynConst.Unit, range.Zero), range.Zero)
 
-        SynExpr.New(
-            false,
-            SynType.LongIdent(LongIdentWithDots(typeName, [ Text.range.Zero ])),
-            SynExpr.Const(SynConst.Unit, Text.range.Zero),
-            tmpRange
-        )
     | NewObject(f, types, exprs) ->
 
         let pats = SynArgPats.Pats([ getArgs f ])
@@ -167,8 +159,9 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
             else
                 (exprs |> List.map toUntyped |> createTupled).WrapInParens()
         //argsToCtor.WrapInParens().ApplyTo(toUntyped expr)
-        let typeName = toSynTypeFromClrType (f.ApparentEnclosingEntity).DisplayName types
-        SynExpr.New(false, typeName, argsToCtor, tmpRange)
+        let fullName = f.ApparentEnclosingEntity.FullName.Replace("`1", "")
+        let typeName = toSynTypeFromClrType fullName types
+        SynExpr.New(false, typeName, argsToCtor, range.Zero)
     | _a ->
         raise
         <| NotImplementedException($"Mapping to untyped tree not implemented for {_a}")
