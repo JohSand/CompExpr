@@ -6,15 +6,17 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Compile Include="Helpers.fs" />
-		<Compile Include="CompileHelpers.fs" />
-		<Compile Include="Builder.fs" />
+		<None Include="TestMe.fsx" CopyToOutputDirectory="PreserveNewest" />
+		<Compile Include="Extensions.fs" />
+		<Compile Include="ExprHelpers.fs" />
 		<Compile Include="Mapper.fs" />
+		<Compile Include="TextCompiler.fs" />
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="Fantomas" Version="4.7.9" />
 		<PackageReference Include="FSharp.Compiler.Service" Version="41.0.3" />
+		<PackageReference Include="FSharp.Quotations.Evaluator" Version="2.1.0" />
 	</ItemGroup>
 	<ItemGroup>
 	  <PackageReference Update="FSharp.Core" Version="6.0.3" />

@@ -8,13 +8,14 @@ open Swensen.Unquote.Extensions
 [<Fact>]
 let ``Test variable let`` () =
     async {
-        let expr = 
-            <@@ 
+        let expr =
+            <@@
                 let a = 1
                 ()
             @@>
+
         let fsharp = expr.Decompile()
-        let! result = Mapper.toLower fsharp
+        let! result = TextCompiler.toLower fsharp
         let expected = "let anon = let a = 1 in ()\r\n"
         do Assert.Equal(expected, result)
     }
@@ -23,7 +24,7 @@ let ``Test variable let`` () =
 let ``Test single argument let`` () =
     async {
         let fsharp = "let f a = 1"
-        let! result = Mapper.toLower fsharp
+        let! result = TextCompiler.toLower fsharp
         let expected = "let f (a) = 1\r\n"
         do Assert.Equal(expected, result)
     }
@@ -32,7 +33,7 @@ let ``Test single argument let`` () =
 let ``Test single argument unit let`` () =
     async {
         let fsharp = "let f () = 1"
-        let! result = Mapper.toLower fsharp
+        let! result = TextCompiler.toLower fsharp
         let expected = "let f () = 1\r\n"
         do Assert.Equal(expected, result)
     }
@@ -41,7 +42,7 @@ let ``Test single argument unit let`` () =
 let ``Test single typed argument let`` () =
     async {
         let fsharp = "let f (a: int) = a"
-        let! result = Mapper.toLower fsharp
+        let! result = TextCompiler.toLower fsharp
         let expected = "let f (a: int) = a\r\n"
         do Assert.Equal(expected, result)
     }
@@ -50,7 +51,7 @@ let ``Test single typed argument let`` () =
 let ``Test multi typed argument let`` () =
     async {
         let fsharp = "let f (a: int) (b: int) = a"
-        let! result = Mapper.toLower fsharp
+        let! result = TextCompiler.toLower fsharp
         let expected = "let f (a: int) (b: int) = a\r\n"
         do Assert.Equal(expected, result)
     }
@@ -59,7 +60,7 @@ let ``Test multi typed argument let`` () =
 let ``Test single typed generic argument let`` () =
     async {
         let fsharp = "let f (a: System.Collections.Generic.List<_>) (b: int) = a"
-        let! result = Mapper.toLower fsharp
+        let! result = TextCompiler.toLower fsharp
         let expected = "let f (a: List<'a>) (b: int) = a\r\n"
         do Assert.Equal(expected, result)
     }
@@ -69,21 +70,25 @@ let ``Test single typed generic argument let`` () =
 let ``Test lambda end parens`` () =
     async {
         let fsharp = "id (fun () -> ())"
-        let! result = Mapper.toLower fsharp
+        let! result = TextCompiler.toLower fsharp
         let expected = "let anon = Microsoft.FSharp.Core.Operators.id ((fun () -> ()))\r\n"
         do Assert.Equal(expected, result)
     }
+
 let t = new System.Threading.Tasks.ValueTask<_>(1)
 
 [<Fact>]
 let ``Test constructor call`` () =
     async {
         let fsharp = "let a () = new System.Collections.Generic.List<'a>()"
-        let! result = Mapper.toLower fsharp
-        let expected = "\
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "\
 let a () =
     new System.Collections.Generic.List<'a>()
 "
+
         do Assert.Equal(expected, result)
     }
 
@@ -91,11 +96,14 @@ let a () =
 let ``Test constructor call value type`` () =
     async {
         let fsharp = "let a () = new System.Threading.Tasks.ValueTask<int>()"
-        let! result = Mapper.toLower fsharp
-        let expected = "\
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "\
 let a () =
     new System.Threading.Tasks.ValueTask<int>()
 "
+
         do Assert.Equal(expected, result)
     }
 
@@ -103,8 +111,10 @@ let a () =
 let ``Test task do delay`` () =
     async {
         let fsharp = "let e () = task { do! System.Threading.Tasks.Task.Delay(1) }"
-        let! result = Mapper.toLower fsharp
-        let expected = "\
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "\
 let e () =
     (fun (builder: TaskBuilder) ->
         builder.Run(
@@ -113,6 +123,7 @@ let e () =
         ))
         task
 "
+
         do Assert.Equal(expected, result)
     }
 
@@ -120,7 +131,8 @@ let e () =
 [<Fact>]
 let ``Test task use Dispose`` () =
     async {
-        let fsharp = "\
+        let fsharp =
+            "\
 let e (s: System.Threading.SemaphoreSlim) = task {
     use lock = s
     try
@@ -130,8 +142,11 @@ let e (s: System.Threading.SemaphoreSlim) = task {
         ignore (lock.Release(1))
 }
 "
-        let! result = Mapper.toLower fsharp
-        let expected = "\
+
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "\
 let e (s: SemaphoreSlim) =
     (fun (builder: TaskBuilder) ->
         builder.Run(
@@ -150,6 +165,7 @@ let e (s: SemaphoreSlim) =
         ))
         task
 "
+
         do Assert.Equal(expected, result)
     }
 
@@ -160,7 +176,7 @@ open System.Collections.Generic
 let e (s: IAsyncEnumerable<_>) f =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay (fun () ->
+            builder.Delay(fun () ->
                 builder.Using(
                     s.GetAsyncEnumerator(CancellationToken.None),
                     fun (_arg1: IAsyncEnumerator<_>) ->
@@ -175,7 +191,7 @@ let e (s: IAsyncEnumerable<_>) f =
 
                                 builder.While(
                                     (fun () -> hasMore),
-                                    builder.Delay (fun () ->
+                                    builder.Delay(fun () ->
                                         builder.Bind(
                                             (f) enumerator.get_Current () :> Task<unit>,
                                             fun (_arg3: unit) ->
@@ -196,7 +212,8 @@ let e (s: IAsyncEnumerable<_>) f =
 [<Fact>]
 let ``Test task use AsyncDispose`` () =
     async {
-        let fsharp = "\
+        let fsharp =
+            "\
 let e (s: System.Collections.Generic.IAsyncEnumerable<_>) f =
     (fun (builder: TaskBuilder) ->
         task {
@@ -211,8 +228,11 @@ let e (s: System.Collections.Generic.IAsyncEnumerable<_>) f =
                 hasMore <- more
     })
 "
-        let! result = Mapper.toLower fsharp
-        let expected = "\
+
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "\
 let e (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
     (fun (builder: TaskBuilder) ->
         builder.Run(
@@ -249,6 +269,7 @@ let e (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
         ))
         task
 "
+
         do Assert.Equal(expected, result)
     }
 
@@ -256,9 +277,9 @@ let e (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
 let ``Test scenario try with`` () =
     async {
         let fsharp =
-                "\
+            "\
 module A
-open CompExpr.Program
+open CompExpr
 
 let e() = 
     scenario {
@@ -267,7 +288,9 @@ let e() =
         with _e ->
             do ()
     }"
-        let expected = "\
+
+        let expected =
+            "\
 let e () =
     (fun (builder: ScenarioStateBuilder) ->
         builder.Run(
@@ -284,6 +307,6 @@ let e () =
         scenario
 "
 
-        let! result = Mapper.toLower fsharp
+        let! result = TextCompiler.toLower fsharp
         Assert.Equal(expected, result)
     }
