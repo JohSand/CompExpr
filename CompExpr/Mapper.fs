@@ -162,6 +162,19 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         let fullName = f.ApparentEnclosingEntity.FullName.Replace("`1", "")
         let typeName = toSynTypeFromClrType fullName types
         SynExpr.New(false, typeName, argsToCtor, range.Zero)
+    | IfThenElse(ifExpr, thenExpr, elseExpr) ->
+        let debugPoint = 
+            DebugPointAtBinding.NoneAtInvisible
+        let trivia =
+            { 
+                SynExprIfThenElseTrivia.IsElif = false
+                IfKeyword = range.Zero
+                ThenKeyword = range.Zero
+                ElseKeyword = None
+                IfToThenRange = range.Zero
+            }
+        SynExpr.IfThenElse(toUntyped ifExpr, toUntyped thenExpr, Some(toUntyped elseExpr), debugPoint, false, range.Zero, trivia)
+
     | _a ->
         raise
         <| NotImplementedException($"Mapping to untyped tree not implemented for {_a}")

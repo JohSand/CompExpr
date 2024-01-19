@@ -310,3 +310,32 @@ let e () =
         let! result = TextCompiler.toLower fsharp
         Assert.Equal(expected, result)
     }
+
+[<Fact>]
+let ``Abcd``() = async {
+    let fsharp =
+        "\
+module A
+open CompExpr
+
+let rec fib x = tramp {
+    let! a = fib (x - 1)
+    let! b = fib (x - 2)
+    return a + b
+}"
+    let expected =
+        "\
+let fib (x: int) =
+    (fun (builder: TrampolineBuilder) ->
+        builder.Run(
+            builder.Delay (fun () ->
+                let a = A.fib (Microsoft.FSharp.Core.Operators.``(-)`` x 1) in
+                let b = A.fib (Microsoft.FSharp.Core.Operators.``(-)`` x 2) in
+                builder.Return(Microsoft.FSharp.Core.Operators.``(+)`` a b))
+        ))
+        tramp
+"
+    let! result = TextCompiler.toLower fsharp
+    Assert.Equal(expected, result)
+    return ()
+}
