@@ -5,12 +5,9 @@ open IcedTasks
 
 let coldTask_dont_start_immediately () =
     task {
-        do! Async.Sleep(100)
-        match 1 with
-        | 1 ->
-            do! Async.Sleep(100)
-            return 1
-        | _ ->
-            do! Async.Sleep(100)
-            return 2
+        let mutable someValue = 0
+        let fooColdTask = coldTask { someValue <- 42 }
+        // ColdTasks will not execute until they are called, similar to how Async works
+        // Calling fooColdTask will start to execute it
+        do! fooColdTask ()
     }

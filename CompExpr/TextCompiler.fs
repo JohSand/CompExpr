@@ -19,12 +19,8 @@ let private checker = FSharpChecker.Create(keepAssemblyContents = true)
 // Based on https://queil.net/2021/06/embedding-fsharp-compiler-nuget-references/
 let private resolveNugets input =
     async {
-        let source = input |> SourceText.ofString
-        let tmpName = Path.GetTempFileName()
-        let! projOptions, errors = checker.GetProjectOptionsFromScript($"{tmpName}.fsx", source)
-
-        match errors with
-        | [] ->
+        match! checker.GetProjectOptionsFromScript($"%s{Path.GetTempFileName()}.fsx", SourceText.ofString input) with
+        | projOptions, [] ->
             let! projResults = checker.ParseAndCheckProject(projOptions)
 
             return

@@ -150,9 +150,6 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         SynExpr.New(false, typeName, SynExpr.Const(SynConst.Unit, range.Zero), range.Zero)
 
     | NewObject(f, types, exprs) ->
-
-        let pats = SynArgPats.Pats([ getArgs f ])
-
         let argsToCtor =
             if List.isEmpty exprs then
                 SynExpr.Const(SynConst.Unit, Text.range.Zero)
@@ -175,6 +172,29 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
             }
         SynExpr.IfThenElse(toUntyped ifExpr, toUntyped thenExpr, Some(toUntyped elseExpr), debugPoint, false, range.Zero, trivia)
 
+    | Quote (expr) ->
+        let inner = toUntyped expr
+        SynExpr.Quote(inner, false, inner, false,  range.Zero)
+    | NewRecord (t, exprs) -> 
+        let records = [
+            for (m, r) in exprs |> Seq.zip t.TypeDefinition.FSharpFields do
+                let typeName =
+                    m.Name |> (fun s -> s.Split(".")) |> Array.map Ident.ofString |> List.ofArray
+
+                let inner = toUntyped r
+                SynExprRecordField.SynExprRecordField(
+                    fieldName = RecordFieldName(LongIdentWithDots(typeName, []), false),
+                    equalsRange = None,
+                    expr = Some inner,
+                    blockSeparator = None
+                )
+        ]
+        SynExpr.Record(
+            None,
+            None,
+            records, 
+            range.Zero
+        )
     | _a ->
         raise
         <| NotImplementedException($"Mapping to untyped tree not implemented for {_a}")
