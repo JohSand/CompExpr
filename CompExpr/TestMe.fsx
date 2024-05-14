@@ -8,6 +8,6 @@ let coldTask_dont_start_immediately () =
         let mutable someValue = 0
         let fooColdTask = coldTask { someValue <- 42 }
         // ColdTasks will not execute until they are called, similar to how Async works
-        // Calling fooColdTask will start to execute it
+        // Calling fooColdTask will start t
         do! fooColdTask ()
     }

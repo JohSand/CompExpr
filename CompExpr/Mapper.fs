@@ -167,7 +167,7 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
                 SynExprIfThenElseTrivia.IsElif = false
                 IfKeyword = range.Zero
                 ThenKeyword = range.Zero
-                ElseKeyword = None
+                ElseKeyword = Some range.Zero
                 IfToThenRange = range.Zero
             }
         SynExpr.IfThenElse(toUntyped ifExpr, toUntyped thenExpr, Some(toUntyped elseExpr), debugPoint, false, range.Zero, trivia)

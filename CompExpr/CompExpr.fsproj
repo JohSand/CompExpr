@@ -14,6 +14,7 @@
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 	<ItemGroup>
+		<PackageReference Include="Argu" Version="6.2.3" />
 		<PackageReference Include="Fantomas" Version="4.7.9" />
 		<PackageReference Include="FSharp.Compiler.Service" Version="41.0.3" />
 		<PackageReference Include="FSharp.Quotations.Evaluator" Version="2.1.0" />
