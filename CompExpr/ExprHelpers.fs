@@ -30,6 +30,9 @@ type SynExpr with
     member args.ApplyTo(f) =
         SynExpr.App(ExprAtomicFlag.Atomic, false, funcExpr = f, argExpr = args, range = Text.range ())
 
+    member args.ApplyToInfix(f) =
+        SynExpr.App(ExprAtomicFlag.Atomic, true, funcExpr = f, argExpr = args, range = Text.range ())
+
     member expr.BodyOfLambda(args) =
         SynExpr.Lambda(
             fromMethod = false,
@@ -135,23 +138,23 @@ let getArgs (memberOrFunctionValue: FSharpMemberOrFunctionOrValue) =
         createSynPat memberOrFunctionValue.FullType memberOrFunctionValue.LogicalName
 
 let createBinding (value: FSharpMemberOrFunctionOrValue) body =
-    SynBinding.SynBinding(
+    SynBinding(
         None,
-        SynBindingKind.Normal,
+        SynBindingKind.Normal,//standAlone?
         false,
         value.IsMutable,
         [],
         PreXmlDoc.Empty,
-        SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
-        SynPat.Named(Ident.ofString value.LogicalName, value.IsMemberThisValue, None, Text.range ()),
+        valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
+        headPat = SynPat.Named(Ident.ofString value.LogicalName, value.IsMemberThisValue, None, Text.range ()),
         //SynPat.Wild(Text.range.Zero),
-        None,
-        body,
-        Text.range (),
-        DebugPointAtBinding.Yes(Text.range ()),
-        {
-            SynBindingTrivia.LetKeyword = Some(Text.range.Zero)
-            EqualsRange = Some(Text.range.Zero)
+        returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [])),
+        expr = body,
+        range = range.Zero,
+        debugPoint = DebugPointAtBinding.Yes(Text.range ()),
+        trivia = {
+            LetKeyword = Some(range.Zero)
+            EqualsRange = Some(range.Zero)
         }
     )
 

@@ -21,6 +21,20 @@ let ``Test variable let`` () =
     }
 
 [<Fact>]
+let ``Test plus operator`` () =
+    async {
+        let expr =
+            <@@
+                1 + 2
+            @@>
+
+        let fsharp = expr.Decompile()
+        let! result = TextCompiler.toLower fsharp
+        let expected = "let anon = 1 + 2\r\n"
+        do Assert.Equal(expected, result)
+    }
+
+[<Fact>]
 let ``Test single argument let`` () =
     async {
         let fsharp = "let f a = 1"
@@ -91,6 +105,35 @@ let a () =
 
         do Assert.Equal(expected, result)
     }
+
+let a () = let x = 1 in x
+
+[<Fact>]
+let ``Test match call`` () =
+    async {
+        let fsharp = 
+            "let a () = match 1 with a -> a"
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "let a () = let a = 1 in a\r\n"
+
+        do Assert.Equal(expected, result)
+    }
+
+[<Fact>]
+let ``Test match call2`` () =
+    async {
+        let fsharp = 
+            "let a () = match None with | None -> 1 | Some (x: int) -> x"
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "let a () = let a = 1 in a\r\n"
+
+        do Assert.Equal(expected, result)
+    }
+
 
 [<Fact>]
 let ``Test constructor call value type`` () =
@@ -327,12 +370,19 @@ let rec fib x = tramp {
         "\
 let fib (x: int) =
     (fun (builder: TrampolineBuilder) ->
-        builder.Run(
-            builder.Delay (fun () ->
-                let a = A.fib (Microsoft.FSharp.Core.Operators.``(-)`` x 1) in
-                let b = A.fib (Microsoft.FSharp.Core.Operators.``(-)`` x 2) in
-                builder.Return(Microsoft.FSharp.Core.Operators.``(+)`` a b))
-        ))
+        builder.Delay (fun () ->
+            builder.Bind(
+                A.fib (x - 1),
+                fun (_arg1: int) ->
+                    let a = _arg1
+
+                    builder.Bind(
+                        A.fib (x - 2),
+                        fun (_arg2: int) ->
+                            let b = _arg2
+                            builder.Return(a + b)
+                    )
+            )))
         tramp
 "
     let! result = TextCompiler.toLower fsharp

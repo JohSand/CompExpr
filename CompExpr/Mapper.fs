@@ -12,6 +12,44 @@ open FSharp.Compiler.Text
 
 open System
 
+let getMatchName fsharpExpr =
+    match fsharpExpr with
+    | IfThenElse(UnionCaseTest(Value expr, _, _), _, _) -> expr.CompiledName
+    | _ -> "failed to resolve name"
+
+let getDecisionTreePat fsharpExpr =
+    match fsharpExpr with
+    | UnionCaseTest(Value expr, typ, case) ->
+        let pats =
+            if case.HasFields then
+                [
+                    SynPat.Paren(
+                        SynPat.Tuple(
+                            false,
+                            [
+                                for f in case.Fields do
+                                    SynPat.Named(Ident.ofString f.Name, false, None, range.Zero)
+                            ],
+                            range.Zero
+                        ),
+                        range.Zero
+                    )
+
+                ]
+            else
+                []
+
+        SynPat.LongIdent(
+            longDotId = LongIdentWithDots(id = [ Ident(case.CompiledName, range.Zero) ], dotRanges = []),
+            propertyKeyword = None,
+            extraId = None,
+            typarDecls = None,
+            argPats = SynArgPats.Pats(pats),
+            accessibility = None,
+            range = range.Zero
+        )
+    | _ -> failwith ""
+
 let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
     let tmpRange = fsharpExpr.Range
 
@@ -46,6 +84,13 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         argsToTheCall.WrapInParens().ApplyTo(functionCall)
 
     | Call(None, caller, c, d, []) -> createIdent [ caller.LogicalName ]
+
+    | Call(None, caller, c, d, args) when caller.CompiledName.StartsWith("op_") ->
+        [
+            createIdent [ caller.LogicalName ]
+            yield! args |> List.map toUntyped
+        ]
+        |> List.reduce (fun agg curr -> curr.ApplyToInfix(agg))
 
     | Call(None, caller, c, d, args) when caller.CurriedParameterGroups.Count > 1 ->
         [
@@ -83,10 +128,10 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         SynExpr.LetOrUse(
             false,
             false,
-            [ f ],
-            body,
-            Option.defaultValue Text.range.Zero inKeyword,
-            { InKeyword = inKeyword }
+            bindings = [ f ],
+            body = body,
+            range = Option.defaultValue Text.range.Zero inKeyword,
+            trivia = { InKeyword = inKeyword }
         )
     //failwith ""
     | NewUnionCase(``type``, case, []) ->
@@ -160,28 +205,37 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         let typeName = toSynTypeFromClrType fullName types
         SynExpr.New(false, typeName, argsToCtor, range.Zero)
     | IfThenElse(ifExpr, thenExpr, elseExpr) ->
-        let debugPoint = 
-            DebugPointAtBinding.NoneAtInvisible
-        let trivia =
-            { 
-                SynExprIfThenElseTrivia.IsElif = false
-                IfKeyword = range.Zero
-                ThenKeyword = range.Zero
-                ElseKeyword = Some range.Zero
-                IfToThenRange = range.Zero
-            }
-        SynExpr.IfThenElse(toUntyped ifExpr, toUntyped thenExpr, Some(toUntyped elseExpr), debugPoint, false, range.Zero, trivia)
+        let debugPoint = DebugPointAtBinding.NoneAtInvisible
 
-    | Quote (expr) ->
+        let trivia = {
+            SynExprIfThenElseTrivia.IsElif = false
+            IfKeyword = range.Zero
+            ThenKeyword = range.Zero
+            ElseKeyword = Some range.Zero
+            IfToThenRange = range.Zero
+        }
+
+        SynExpr.IfThenElse(
+            toUntyped ifExpr,
+            toUntyped thenExpr,
+            Some(toUntyped elseExpr),
+            debugPoint,
+            isFromErrorRecovery = false,
+            range = range.Zero,
+            trivia = trivia
+        )
+
+    | Quote(expr) ->
         let inner = toUntyped expr
-        SynExpr.Quote(inner, false, inner, false,  range.Zero)
-    | NewRecord (t, exprs) -> 
+        SynExpr.Quote(inner, false, inner, false, range.Zero)
+    | NewRecord(t, exprs) ->
         let records = [
             for (m, r) in exprs |> Seq.zip t.TypeDefinition.FSharpFields do
                 let typeName =
                     m.Name |> (fun s -> s.Split(".")) |> Array.map Ident.ofString |> List.ofArray
 
                 let inner = toUntyped r
+
                 SynExprRecordField.SynExprRecordField(
                     fieldName = RecordFieldName(LongIdentWithDots(typeName, []), false),
                     equalsRange = None,
@@ -189,12 +243,106 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
                     blockSeparator = None
                 )
         ]
-        SynExpr.Record(
-            None,
-            None,
-            records, 
+
+        SynExpr.Record(None, None, records, range.Zero)
+    | UnionCaseGet(expr, typ, case, field) ->
+
+        //toUntyped expr
+        SynExpr.Ident(Ident.ofString field.Name)
+
+    | DecisionTree(ifElse, nodes) ->
+        let clauses = parseDecisionTree ifElse nodes
+
+        SynExpr.Match(
+            range.Zero,
+            DebugPointAtBinding.NoneAtInvisible,
+            SynExpr.Ident(Ident(getMatchName ifElse, range.Zero)),
+            range.Zero,
+            clauses,
             range.Zero
         )
-    | _a ->
-        raise
-        <| NotImplementedException($"Mapping to untyped tree not implemented for {_a}")
+    | a ->
+        let expr = sprintf "%A." a
+
+        SynExpr.App(
+            flag = ExprAtomicFlag.NonAtomic,
+            isInfix = false,
+            funcExpr =
+                SynExpr.App(
+                    flag = ExprAtomicFlag.NonAtomic,
+                    isInfix = false,
+                    funcExpr = SynExpr.Ident(Ident("invalidArg", range.Zero)),
+                    argExpr =
+                        SynExpr.Const(
+                            SynConst.String(
+                                text = "fsharpExpr",
+                                synStringKind = SynStringKind.Regular,
+                                range = range.Zero
+                            ),
+                            range.Zero
+                        ),
+                    range = range.Zero
+                ),
+            argExpr =
+                SynExpr.Const(
+                    SynConst.String(text = expr, synStringKind = SynStringKind.Regular, range = range.Zero),
+                    range = range.Zero
+                ),
+            range = range.Zero
+        )
+
+and parseDecisionTree (fsharpExpr: FSharpExpr) (result: (_ * FSharpExpr) list) = [
+    match fsharpExpr with
+
+    | IfThenElse(test, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)) ->
+        let (_, expr1) = result[case1]
+        let pat = getDecisionTreePat test
+
+        SynMatchClause(
+            pat = pat,
+            whenExpr = None, //todo
+            resultExpr = toUntyped (expr1),
+            range = range.Zero,
+            debugPoint = DebugPointAtTarget.No,
+            trivia = {
+                ArrowRange = Some(range.Zero)
+                BarRange = Some(range.Zero)
+            }
+        )
+
+        let (_, expr2) = result[case2]
+
+        let finalClause =
+            SynMatchClause(
+                pat = SynPat.Wild(range.Zero),
+                whenExpr = None, //todo
+                resultExpr = toUntyped (expr2),
+                range = range.Zero,
+                debugPoint = DebugPointAtTarget.No,
+                trivia = {
+                    ArrowRange = Some(range.Zero)
+                    BarRange = Some(range.Zero)
+                }
+            )
+
+        finalClause
+    | IfThenElse(test, DecisionTreeSuccess(case, _), rest) ->
+        let (_, expr) = result[case]
+        let pat = getDecisionTreePat test
+
+        SynMatchClause(
+            pat = pat,
+            whenExpr = None, //todo
+            resultExpr = toUntyped (expr),
+            range = range.Zero,
+            debugPoint = DebugPointAtTarget.No,
+            trivia = {
+                ArrowRange = Some(range.Zero)
+                BarRange = Some(range.Zero)
+            }
+        )
+
+        yield! parseDecisionTree rest result
+
+    | _ -> failwith "unknown decision-tree option"
+]
