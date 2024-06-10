@@ -59,16 +59,14 @@ type SynExpr with
 
     member expr.RequireParens() =
         match expr with
-        | SynExpr.Record _
-        | SynExpr.Const _
-        | SynExpr.Tuple _ ->
-            false
-        | _ -> true
+        | SynExpr.Lambda _ ->
+            true
+        | _ -> false
 
 
 let makeType (str: string) =
     let typeName =
-        str |> (fun s -> s.Split(".")) |> Array.map Ident.ofString |> List.ofArray
+        str |> (_.Split(".")) |> Array.map Ident.ofString |> List.ofArray
     SynType.LongIdent(LongIdentWithDots(typeName, []))
 
 let makeGenericType (typeName) (genericTypes) =

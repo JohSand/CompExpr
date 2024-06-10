@@ -301,6 +301,7 @@ let e (s: IAsyncEnumerable<_>) f =
         ))
         task
 
+
 [<Fact>]
 let ``Test task use AsyncDispose`` () =
     async {
@@ -342,7 +343,7 @@ let e (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
                                 hasMore <- more
 
                                 builder.While(
-                                    fun () -> hasMore,
+                                    (fun () -> hasMore),
                                     builder.Delay (fun () ->
                                         builder.Bind(
                                             (f) enumerator.get_Current () :> Task<unit>,
@@ -403,6 +404,7 @@ let e () =
         let! result = TextCompiler.toLower fsharp
         Assert.Equal(expected, result)
     }
+
 
 [<Fact>]
 let ``Abcd``() = async {

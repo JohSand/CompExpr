@@ -43,6 +43,11 @@ let tryFindOpenStatements (loweredFile: string) (basefile: string) =
 
     basefile[0 .. (basefile.IndexOf(openingLetStmt) - 1)]
 
+let writeOutput targetFile (txt: string) = task {
+    use fs = FileInfo(targetFile).Open(FileMode.Truncate, FileAccess.Write, FileShare.ReadWrite)
+    use writer = new StreamWriter(fs)
+    do! writer.WriteAsync(txt)
+}
 
 let writeDesugared (path) targetFile =
     task {
@@ -56,11 +61,13 @@ let writeDesugared (path) targetFile =
                 Console.WriteLine("Creating lowered output...")
                 let! pp = TextCompiler.toLower content
                 let opn = tryFindOpenStatements pp content
-                File.WriteAllText(targetFile, opn + pp)
+                do! writeOutput targetFile (opn + pp)
                 Console.WriteLine("Wrote lowered output...")
+            else
+                Console.WriteLine("Ignored change, since file size did not change.")
         with exn ->
             Console.WriteLine(exn)
-            Console.WriteLine("File to write to file.")
+            Console.WriteLine("Failed write")
             do! Task.Delay(100)
             //meh, but only limited depth
             return ()

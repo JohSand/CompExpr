@@ -109,8 +109,11 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         let argsToTheCall = 
             args 
             |> List.map toUntyped
-            |> List.map (fun s -> 
-                if false then
+            |> List.mapi (fun i s -> 
+                //having a lambda in a tupled call requires parens, or the comma will be 
+                //interpreted as a tuple in the lambda. Work without if the lambda is the last arg
+                //since then we wont have any trailing comma.
+                if s.RequireParens() && i <> args.Length - 1 then
                     s.WrapInParens()
                 else 
                     s
@@ -323,6 +326,12 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
 
         //toUntyped expr
         SynExpr.Ident(Ident.ofString field.Name)
+
+    | FSharpFieldGet(Some(Value caller), typ, field: FSharpField) ->
+        createIdent [ 
+            caller.CompiledName
+            field.Name
+        ]
 
     | DecisionTree(ifElse, nodes) ->
         let clauses = parseDecisionTree ifElse nodes
