@@ -4,6 +4,11 @@ open System
 open Xunit
 open CompExpr
 open Swensen.Unquote.Extensions
+open Microsoft.FSharp.Quotations
+
+type Code =
+    static member toText([<ReflectedDefinition()>]a: Expr<_>) =
+        a.Decompile()
 
 [<Fact>]
 let ``Test variable let`` () =
@@ -23,14 +28,23 @@ let ``Test variable let`` () =
 [<Fact>]
 let ``Test plus operator`` () =
     async {
-        let expr =
-            <@@
+        let fsharp =
+            Code.toText(
                 1 + 2
-            @@>
-
-        let fsharp = expr.Decompile()
+            )
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = 1 + 2\r\n"
+        do Assert.Equal(expected, result)
+    }
+
+[<Fact>]
+let ``Test prefix operator`` () =
+    async {
+        let fsharp =
+            Code.toText(~~~ 2)            
+
+        let! result = TextCompiler.toLower fsharp
+        let expected = "let anon = ~~~ 2\r\n"
         do Assert.Equal(expected, result)
     }
 
@@ -129,11 +143,46 @@ let ``Test match call2`` () =
         let! result = TextCompiler.toLower fsharp
 
         let expected =
-            "let a () = let a = 1 in a\r\n"
+            "\
+let a () =
+    let matchValue = Option.None  in
+
+    match matchValue with
+    | Some (Value) ->
+        let x = Value
+        x
+    | _ -> 1
+"
 
         do Assert.Equal(expected, result)
     }
 
+[<Fact>]
+let ``Test match call3`` () =
+    async {
+        let fsharp = 
+            "let a () = match None with | None -> 1 | Some (x: int) when x > 1 -> x | Some x -> 2"
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "\
+let a () =
+    let matchValue = Option.None  in
+
+    match matchValue with
+    | Some (Value) when
+        let x = Value
+        x > 1
+        ->
+        let x = Value in x
+    | Some (Value) ->
+        let x = Value
+        2
+    | _ -> 1
+"
+
+        do Assert.Equal(expected, result)
+    }
 
 [<Fact>]
 let ``Test constructor call value type`` () =
@@ -281,7 +330,7 @@ let e (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
         builder.Run(
             builder.Delay (fun () ->
                 builder.Using(
-                    s.GetAsyncEnumerator(get_None),
+                    s.GetAsyncEnumerator(CancellationToken.None),
                     fun (_arg1: IAsyncEnumerator<'a>) ->
                         let enumerator = _arg1
                         let mutable hasMore = true in
@@ -315,6 +364,7 @@ let e (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
 
         do Assert.Equal(expected, result)
     }
+
 
 [<Fact>]
 let ``Test scenario try with`` () =

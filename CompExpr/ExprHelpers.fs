@@ -11,7 +11,7 @@ open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Text
 open System.Reflection
-
+open System
 
 let tmpRange = Text.range ()
 
@@ -44,6 +44,26 @@ type SynExpr with
             range = expr.Range,
             trivia = { ArrowRange = Some(range.Zero) }
         )
+
+    member expr.WithTypeArgs(typeArgs) =
+        SynExpr.TypeApp(
+            expr = expr, 
+            lessRange = Text.range (),
+
+            typeArgs = typeArgs, 
+            commaRanges = [],
+            greaterRange = Some(Text.range ()),
+            typeArgsRange = Text.range (),
+            range = Text.range ()
+        )
+
+    member expr.RequireParens() =
+        match expr with
+        | SynExpr.Record _
+        | SynExpr.Const _
+        | SynExpr.Tuple _ ->
+            false
+        | _ -> true
 
 
 let makeType (str: string) =
@@ -150,6 +170,27 @@ let createBinding (value: FSharpMemberOrFunctionOrValue) body =
         //SynPat.Wild(Text.range.Zero),
         returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [])),
         expr = body,
+        range = range.Zero,
+        debugPoint = DebugPointAtBinding.Yes(Text.range ()),
+        trivia = {
+            LetKeyword = Some(range.Zero)
+            EqualsRange = Some(range.Zero)
+        }
+    )
+
+let createLetBinding from to_ =
+    SynBinding(
+        None,
+        SynBindingKind.Normal,//standAlone?
+        false,
+        false,
+        [],
+        PreXmlDoc.Empty,
+        valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
+        headPat = SynPat.Named(Ident.ofString to_, false, None, Text.range ()),
+        //SynPat.Wild(Text.range.Zero),
+        returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [])),
+        expr = SynExpr.Ident(Ident(from, range.Zero)),
         range = range.Zero,
         debugPoint = DebugPointAtBinding.Yes(Text.range ()),
         trivia = {

@@ -17,6 +17,17 @@ let getMatchName fsharpExpr =
     | IfThenElse(UnionCaseTest(Value expr, _, _), _, _) -> expr.CompiledName
     | _ -> "failed to resolve name"
 
+let getBindName fsharpExpr =
+    match fsharpExpr with
+    | Let((_, UnionCaseGet(expr, typ, case, field), _), _) -> field.Name
+    | _ -> "failed to get name of binding"
+
+let getBoundName fsharpExpr =
+    match fsharpExpr with
+    | Let((v, _, _), _) -> v.CompiledName
+    | _ -> "failed to get name of binding"
+
+
 let getDecisionTreePat fsharpExpr =
     match fsharpExpr with
     | UnionCaseTest(Value expr, typ, case) ->
@@ -65,12 +76,29 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         let args = getArgs args
         let body = toUntyped expression
         body.BodyOfLambda(args)
-    | Call(Some(Call(_, f, _, _, _)), b, c, d, args) ->
-        let argsToTheCall = args |> List.map toUntyped |> createTupled
-        //eg Thing.do a, Thing.other a b, Thing.third (a, b), obj.Method(a, b) etc
-        let functionCall = createIdent [ f.LogicalName; b.LogicalName ]
-        let xkcd = argsToTheCall.WrapInParens().ApplyTo(functionCall)
-        xkcd
+    | Call(Some(Call(maybeE, f, _typs, _, thisArgs)), b, c, d, args) ->
+        if f.IsMember then
+            let argsToTheCall = args |> List.map toUntyped |> createTupled
+            //eg Thing.do a, Thing.other a b, Thing.third (a, b), obj.Method(a, b) etc
+            let functionCall = 
+                createIdent [ 
+                    match maybeE with
+                    | Some (Value a) -> 
+                        a.LogicalName
+                    | _ ->
+                        ()
+                    f.LogicalName.Replace("get_", ""); 
+                    b.LogicalName 
+                ]
+            let xkcd = argsToTheCall.WrapInParens().ApplyTo(functionCall)
+            xkcd
+
+        else
+            let argsToTheCall = args |> List.map toUntyped |> createTupled
+            //eg Thing.do a, Thing.other a b, Thing.third (a, b), obj.Method(a, b) etc
+            let functionCall = createIdent [ f.LogicalName; b.LogicalName ]
+            let xkcd = argsToTheCall.WrapInParens().ApplyTo(functionCall)
+            xkcd
     //failwith ""
     | Call(Some(Value a), b, c, d, [ f ]) ->
         match toUntyped (f) with
@@ -78,20 +106,63 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
         | args -> args.WrapInParens().ApplyTo(createIdent [ a.LogicalName; b.LogicalName ])
 
     | Call(Some(Value obj), b, c, d, args) ->
-        let argsToTheCall = args |> List.map toUntyped |> createTupled
+        let argsToTheCall = 
+            args 
+            |> List.map toUntyped
+            |> List.map (fun s -> 
+                if false then
+                    s.WrapInParens()
+                else 
+                    s
+            )
+            |> createTupled
         //eg Thing.do a, Thing.other a b, Thing.third (a, b), obj.Method(a, b) etc
         let functionCall = createIdent [ obj.LogicalName; b.LogicalName ]
         argsToTheCall.WrapInParens().ApplyTo(functionCall)
 
-    | Call(None, caller, c, d, []) -> createIdent [ caller.LogicalName ]
+    | Call(None, caller, c, [], []) -> 
+        if caller.ApparentEnclosingEntity.IsFSharpModule then
+            //static call, no args
+            if caller.ApparentEnclosingEntity.HasAttribute<AutoOpenAttribute>() then
+                //caller.ApparentEnclosingEntity
+                createIdent [ caller.CompiledName  ]
+            else
+                createIdent [ 
+                    caller.ApparentEnclosingEntity.CompiledName
+                    caller.CompiledName  
+                ]
+        else
+            if caller.IsPropertyGetterMethod then
+            //static call probably unit args?
+                createIdent [ 
+                    caller.ApparentEnclosingEntity.CompiledName
+                    caller.CompiledName.Replace("get_", "")  
+                ]
+            else
+                let functionCall = createIdent [ 
+                    caller.ApparentEnclosingEntity.CompiledName
+                    caller.CompiledName  
+                ]
+                SynExpr.Const(SynConst.Unit, tmpRange).ApplyTo(functionCall)
 
+
+    | Call(None, caller, c, genericArgs, []) -> 
+        //static call
+        let functionCall = 
+            createIdent [ 
+                caller.ApparentEnclosingEntity.CompiledName
+                caller.CompiledName 
+            ]
+        let typeArgs = 
+            genericArgs
+            |> List.map getSynType
+        SynExpr.Const(SynConst.Unit, tmpRange).ApplyTo(functionCall.WithTypeArgs(typeArgs))
+
+    //operators
     | Call(None, caller, c, d, args) when caller.CompiledName.StartsWith("op_") ->
-        [
-            createIdent [ caller.LogicalName ]
-            yield! args |> List.map toUntyped
-        ]
+        [ createIdent [ caller.LogicalName ]; yield! args |> List.map toUntyped ]
         |> List.reduce (fun agg curr -> curr.ApplyToInfix(agg))
-
+    //fsharp function calls
     | Call(None, caller, c, d, args) when caller.CurriedParameterGroups.Count > 1 ->
         [
             caller.FullName.Split(".") |> List.ofArray |> createIdent
@@ -190,9 +261,12 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
             Text.Range.Zero
         )
     | DefaultValue expr ->
-        let name = expr.TypeDefinition.FullName.Replace("`1", "")
-        let typeName = toSynTypeFromClrType name [ yield! expr.GenericArguments ]
-        SynExpr.New(false, typeName, SynExpr.Const(SynConst.Unit, range.Zero), range.Zero)
+        if expr.TypeDefinition.IsValueType then
+            let name = expr.TypeDefinition.FullName.Replace("`1", "")
+            let typeName = toSynTypeFromClrType name [ yield! expr.GenericArguments ]
+            SynExpr.New(false, typeName, SynExpr.Const(SynConst.Unit, range.Zero), range.Zero)
+        else
+            SynExpr.Null(range.Zero)
 
     | NewObject(f, types, exprs) ->
         let argsToCtor =
@@ -293,6 +367,20 @@ let rec toUntyped (fsharpExpr: FSharpExpr) : SynExpr =
 
 and parseDecisionTree (fsharpExpr: FSharpExpr) (result: (_ * FSharpExpr) list) = [
     match fsharpExpr with
+    | IfThenElse(test, expr, Call(_)) ->
+        let pat = getDecisionTreePat test
+
+        SynMatchClause(
+            pat = pat,
+            whenExpr = None, //todo
+            resultExpr = toUntyped (expr),
+            range = range.Zero,
+            debugPoint = DebugPointAtTarget.No,
+            trivia = {
+                ArrowRange = Some(range.Zero)
+                BarRange = Some(range.Zero)
+            }
+        )
 
     | IfThenElse(test, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)) ->
         let (_, expr1) = result[case1]
@@ -343,6 +431,91 @@ and parseDecisionTree (fsharpExpr: FSharpExpr) (result: (_ * FSharpExpr) list) =
         )
 
         yield! parseDecisionTree rest result
+
+    | IfThenElse(test,
+                 IfThenElse(ifExpr, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)),
+                 DecisionTreeSuccess(case3, _)) ->
+        let pat = getDecisionTreePat test
+        let whenExpr = toUntyped ifExpr
+        let (_, thenExpr) = result[case1]
+        let (_, elseExpr) = result[case2]
+
+        //let inner =
+        //    SynExpr.IfThenElse(
+        //        whenExpr,
+        //        toUntyped thenExpr,
+        //        Some(toUntyped elseExpr),
+        //        debugPoint,
+        //        isFromErrorRecovery = false,
+        //        range = range.Zero,
+        //        trivia = trivia
+        //    )
+        //construct the result, since the name used in the result is not let-bound
+        let boundValue = getBindName ifExpr
+        let boundName = getBoundName ifExpr
+        let resultExpr = toUntyped thenExpr
+        let letResult =
+            SynExpr.LetOrUse(
+                false,
+                false,
+                [
+                    createLetBinding boundValue boundName
+                ],
+                resultExpr,
+                range.Zero,
+                { InKeyword = Some(range.Zero) }
+            
+            )
+
+        SynMatchClause(
+            pat = pat,
+            whenExpr = Some(whenExpr), //todo
+            resultExpr = letResult,
+            range = range.Zero,
+            debugPoint = DebugPointAtTarget.No,
+            trivia = {
+                ArrowRange = Some(range.Zero)
+                BarRange = Some(range.Zero)
+            }
+        )
+
+        yield! parseDecisionTree elseExpr result
+
+        let (_, expr2) = result[case3]
+
+        let finalClause =
+            SynMatchClause(
+                pat = SynPat.Wild(range.Zero),
+                whenExpr = None, //todo
+                resultExpr = toUntyped (expr2),
+                range = range.Zero,
+                debugPoint = DebugPointAtTarget.No,
+                trivia = {
+                    ArrowRange = Some(range.Zero)
+                    BarRange = Some(range.Zero)
+                }
+            )
+
+        finalClause
+
+    | IfThenElse(test, (IfThenElse(_, _, _) as eif), rest) ->
+        let (_, expr) = result[1]
+        let pat = getDecisionTreePat test
+
+        SynMatchClause(
+            pat = pat,
+            whenExpr = None, //todo
+            resultExpr = toUntyped (expr),
+            range = range.Zero,
+            debugPoint = DebugPointAtTarget.No,
+            trivia = {
+                ArrowRange = Some(range.Zero)
+                BarRange = Some(range.Zero)
+            }
+        )
+
+        yield! parseDecisionTree rest result
+
 
     | _ -> failwith "unknown decision-tree option"
 ]

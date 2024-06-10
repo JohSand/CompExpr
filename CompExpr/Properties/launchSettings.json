@@ -2,7 +2,7 @@
   "profiles": {
     "CompExpr": {
       "commandName": "Project",
-      "commandLineArgs": "--working-directory ."
+      "commandLineArgs": "--working-directory \"C:\\Projects\\JohSand.TechTop\\Cexpr\""
     }
   }
 }
