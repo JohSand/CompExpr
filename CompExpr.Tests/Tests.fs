@@ -2,6 +2,7 @@ module Tests
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open System.Threading.Channels
 open Xunit
 open CompExpr
@@ -180,7 +181,7 @@ let ``Test calling a curried function`` () =
             Code.toText(List.map id [])            
 
         let! result = TextCompiler.toLower fsharp
-        let expected = "let anon =\r\n    Microsoft.FSharp.Collections.List.map fun (x: obj) -> Microsoft.FSharp.Core.Operators.id (x) List.Empty\r\n"
+        let expected = "let anon = Microsoft.FSharp.Collections.List.map fun (x: obj) -> id (x) List.Empty\r\n"
         do Assert.Equal(expected, result)
     }
 
@@ -189,7 +190,7 @@ let ``Test lambda end parens`` () =
     async {
         let fsharp = "id (fun () -> ())"
         let! result = TextCompiler.toLower fsharp
-        let expected = "let anon = Microsoft.FSharp.Core.Operators.id (fun () -> ())\r\n"
+        let expected = "let anon = id (fun () -> ())\r\n"
         do Assert.Equal(expected, result)
     }
 
@@ -289,6 +290,10 @@ let a () =
         do Assert.Equal(expected, result)
     }
 
+let e () =
+    (fun (builder: TaskBuilder) ->
+        builder.Run(builder.Delay(fun () -> builder.Bind(Task.Delay(1), fun (_arg1: unit) -> builder.Zero()))))
+        task
 
 
 [<Fact>]
@@ -301,11 +306,7 @@ let ``Test task do delay`` () =
             "\
 let e () =
     (fun (builder: TaskBuilder) ->
-        builder.Run(
-            builder.Delay(
-                fun () -> builder.Bind(System.Threading.Tasks.Task.Delay(1), (fun (_arg1: unit) -> builder.Zero()))
-            )
-        ))
+        builder.Run(builder.Delay(fun () -> builder.Bind(Task.Delay(1), (fun () -> builder.Zero())))))
         task
 "
 
@@ -334,21 +335,17 @@ let e (s: System.Threading.SemaphoreSlim) = task {
 let e (s: SemaphoreSlim) =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay(
-                fun () ->
-                    builder.Using(
-                        s,
-                        fun (_arg1: SemaphoreSlim) ->
-                            let lock = _arg1
+            builder.Delay (fun () ->
+                builder.Using(
+                    s,
+                    fun (_arg1: SemaphoreSlim) ->
+                        let lock = _arg1
 
-                            builder.TryFinally(
-                                builder.Delay(
-                                    fun () -> builder.Bind(lock.WaitAsync(), (fun (_arg2: unit) -> builder.Return()))
-                                ),
-                                fun () -> Microsoft.FSharp.Core.Operators.ignore (lock.Release(1))
-                            )
-                    )
-            )
+                        builder.TryFinally(
+                            builder.Delay(fun () -> builder.Bind(lock.WaitAsync(), (fun () -> builder.Return()))),
+                            fun () -> ignore (lock.Release(1))
+                        )
+                ))
         ))
         task
 "
@@ -360,13 +357,48 @@ open System.Threading
 open System.Threading.Tasks
 open System.Collections.Generic
 
+let ex (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
+    (fun (builder: TaskBuilder) ->
+        builder.Run(
+            builder.Delay (fun () ->
+                builder.Using(
+                    s.GetAsyncEnumerator(CancellationToken.None),
+                    fun (_arg1: IAsyncEnumerator<'a>) ->
+                        let enumerator = _arg1
+                        let mutable hasMore = true in
+
+                        builder.Bind(
+                            enumerator.MoveNextAsync(),
+                            fun (_arg2: bool) ->
+                                let more = _arg2
+                                hasMore <- more
+
+                                builder.While(
+                                    (fun () -> hasMore),
+                                    builder.Delay (fun () ->
+                                        builder.Bind(
+                                            (f) enumerator.Current :> Task<unit>,
+                                            fun () ->
+                                                builder.Bind(
+                                                    enumerator.MoveNextAsync(),
+                                                    fun (_arg4: bool) ->
+                                                        let more = _arg4
+                                                        hasMore <- more
+                                                        builder.Zero()
+                                                )
+                                        ))
+                                )
+                        )
+                ))
+        ))
+        task
+
 [<Fact>]
 let ``Test task use AsyncDispose`` () =
     async {
         let fsharp =
             "\
 let e (s: System.Collections.Generic.IAsyncEnumerable<_>) f =
-    (fun (builder: TaskBuilder) ->
         task {
             use enumerator = s.GetAsyncEnumerator(System.Threading.CancellationToken.None)
             let mutable hasMore = true
@@ -377,57 +409,52 @@ let e (s: System.Collections.Generic.IAsyncEnumerable<_>) f =
 
                 let! more = enumerator.MoveNextAsync()
                 hasMore <- more
-    })
+    }
 "
 
         let! result = TextCompiler.toLower fsharp
 
         let expected =
             "\
-let e (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
+let e (s: IAsyncEnumerable<'a>) (f) =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay(
-                fun () ->
-                    builder.Using(
-                        s.GetAsyncEnumerator(CancellationToken.None),
-                        fun (_arg1: IAsyncEnumerator<'a>) ->
-                            let enumerator = _arg1
-                            let mutable hasMore = true in
+            builder.Delay (fun () ->
+                builder.Using(
+                    s.GetAsyncEnumerator(CancellationToken.None),
+                    fun (_arg1: IAsyncEnumerator<'a>) ->
+                        let enumerator = _arg1
+                        let mutable hasMore = true in
 
-                            builder.Bind(
-                                enumerator.MoveNextAsync(),
-                                fun (_arg2: bool) ->
-                                    let more = _arg2
-                                    hasMore <- more
+                        builder.Bind(
+                            enumerator.MoveNextAsync(),
+                            fun (_arg2: bool) ->
+                                let more = _arg2
+                                hasMore <- more
 
-                                    builder.While(
-                                        (fun () -> hasMore),
-                                        builder.Delay(
+                                builder.While(
+                                    (fun () -> hasMore),
+                                    builder.Delay (fun () ->
+                                        builder.Bind(
+                                            f enumerator.Current :> Task<unit>,
                                             fun () ->
                                                 builder.Bind(
-                                                    (f) enumerator.Current :> Task<unit>,
-                                                    fun (_arg3: unit) ->
-                                                        builder.Bind(
-                                                            enumerator.MoveNextAsync(),
-                                                            fun (_arg4: bool) ->
-                                                                let more = _arg4
-                                                                hasMore <- more
-                                                                builder.Zero()
-                                                        )
+                                                    enumerator.MoveNextAsync(),
+                                                    fun (_arg4: bool) ->
+                                                        let more = _arg4
+                                                        hasMore <- more
+                                                        builder.Zero()
                                                 )
-                                        )
-                                    )
-                            )
-                    )
-            )
+                                        ))
+                                )
+                        )
+                ))
         ))
         task
 "
 
         do Assert.Equal(expected, result)
     }
-
 
 [<Fact>]
 let ``Test scenario try with`` () =
@@ -450,22 +477,14 @@ let e() =
 let e () =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay(
-                fun () ->
-                    builder.TryWith(
-                        builder.Delay(
-                            fun () ->
-                                builder.Bind(
-                                    System.Threading.Tasks.Task.Delay(1),
-                                    fun (_arg1: unit) -> builder.Zero()
-                                )
-                        ),
-                        fun (_arg2: exn) ->
-                            let _e = _arg2 in
-                            ()
-                            builder.Zero()
-                    )
-            )
+            builder.Delay (fun () ->
+                builder.TryWith(
+                    builder.Delay(fun () -> builder.Bind(Task.Delay(1), (fun () -> builder.Zero()))),
+                    fun (_arg2: exn) ->
+                        let _e = _arg2 in
+                        ()
+                        builder.Zero()
+                ))
         ))
         task
 "
