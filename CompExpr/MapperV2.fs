@@ -67,7 +67,7 @@ type SynPat with
     member this.TypedPat(typ) = 
         SynPat.Typed(this, typ, Range.Zero)
 
-    member this.CreateBining(body, ?isMutable) =
+    member headPat.SynBinding(expr, ?isMutable) =
         SynBinding(
             None,
             SynBindingKind.Normal,
@@ -76,17 +76,32 @@ type SynPat with
             [],
             PreXmlDoc.Empty,
             valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
-            headPat = this,
-            //SynPat.Wild(Text.range.Zero),
+            headPat = headPat,
             returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [])),
-            expr = body,
+            expr = expr,
             range = range.Zero,
             debugPoint = DebugPointAtBinding.Yes(Text.range ()),
             trivia = {
                 LetKeyword = Some(range.Zero)
                 EqualsRange = Some(range.Zero)
             }
-        )   
+        )
+
+    member pat.GetSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
+        pat.GetSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
+
+    member pat.GetSynMatchClause(result: SynExpr, ?whenExpr) =
+        SynMatchClause(
+            pat = pat,
+            whenExpr = whenExpr,
+            resultExpr = result,
+            range = range.Zero,
+            debugPoint = DebugPointAtTarget.No,
+            trivia = {
+                ArrowRange = Some(range.Zero)
+                BarRange = Some(range.Zero)
+            }
+        )
 
 type SynExpr with
 
@@ -297,7 +312,7 @@ type FSharpMemberOrFunctionOrValue with
             this.LogicalName.Named() 
 
     member value.createBinding body =
-        value.Named().CreateBining(body, value.IsMutable)
+        value.Named().SynBinding(body, value.IsMutable)
 
 
     member f.LongIdent() =
@@ -468,5 +483,101 @@ type FSharpExpr with
         | Call(None, f, _, genericArgs, args) ->
             f.LongIdent().Apply(args)
 
+        | DecisionTree(ifElse, nodes) ->
+            let clauses =  ifElse.GetSynMatchClauses nodes
+
+            SynExpr.Match(
+                range.Zero,
+                DebugPointAtBinding.NoneAtInvisible,
+                SynExpr.Ident(Ident(ifElse.GetMatchName(), range.Zero)),
+                range.Zero,
+                clauses,
+                range.Zero
+            )
         | a ->
             "invalidArg".Apply("fsharpExpr").Apply(sprintf "%A." a)
+
+    member fsharpExpr.GetSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
+        fsharpExpr.GetSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
+
+    member fsharpExpr.GetSynMatchClause(result: SynExpr, ?whenExpr) =
+        fsharpExpr.getDecisionTreePat().GetSynMatchClause(result, ?whenExpr = whenExpr)
+
+    member fsharpExpr.GetSynMatchClauses(result: (_ * FSharpExpr) list) = [
+        match fsharpExpr with
+        | IfThenElse(test, expr, Call(_)) ->
+            test.GetSynMatchClause(expr.ToUntyped())
+
+        | IfThenElse(test, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)) ->
+            test.GetSynMatchClause(result[case1])
+            SynPat.Wild(range.Zero).GetSynMatchClause(result[case2])
+            
+        | IfThenElse(test, DecisionTreeSuccess(case, _), rest) ->
+            test.GetSynMatchClause(result[case])
+            yield! rest.GetSynMatchClauses result
+
+        | IfThenElse(test, IfThenElse(ifExpr, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)), DecisionTreeSuccess(case3, _)) ->                               
+            let letResult =
+                SynExpr.LetOrUse(
+                    false,
+                    false,
+                    [ ifExpr.GetBoundName().Named().SynBinding(ifExpr.GetCaseName().IdentExpr()) ],
+                    (let (_, thenExpr) = result[case1] in thenExpr.ToUntyped()),
+                    range.Zero,
+                    { InKeyword = Some(range.Zero) }            
+                )
+
+            test.GetSynMatchClause(letResult, ifExpr.ToUntyped())
+
+            let (_, elseExpr) = result[case2]
+            yield! elseExpr.GetSynMatchClauses(result)
+
+            SynPat.Wild(range.Zero).GetSynMatchClause(result[case3])
+
+        | IfThenElse(test, (IfThenElse(_, _, _) as eif), rest) ->
+            test.GetSynMatchClause(result[1])
+            yield! rest.GetSynMatchClauses result
+
+        | IfThenElse(test, eif, rest) ->
+            test.GetSynMatchClause(result[1])
+            yield! rest.GetSynMatchClauses result
+
+        | _ -> failwith "unknown decision-tree option"
+    ]
+
+    member fsharpExpr.getDecisionTreePat() : SynPat  =
+        match fsharpExpr with
+        | UnionCaseTest(Value expr, typ, case) ->
+            SynPat.LongIdent(
+                longDotId = case.CompiledName.LongIdentWithDots(),
+                propertyKeyword = None,
+                extraId = None,
+                typarDecls = None,
+                argPats = case.GetPats(),
+                accessibility = None,
+                range = range.Zero
+            )
+        | _ -> failwith ""
+
+    member fsharpExpr.GetMatchName() : string =
+        match fsharpExpr with
+        | IfThenElse(UnionCaseTest(Value expr, _, _), _, _) -> expr.CompiledName
+        | _ -> "failed to resolve name"
+
+    member fsharpExpr.GetCaseName() : string =
+        match fsharpExpr with
+        | Let((_, UnionCaseGet(expr, typ, case, field), _), _) -> field.Name
+        | _ -> "failed to get name of binding"
+
+    member fsharpExpr.GetBoundName() : string =
+        match fsharpExpr with
+        | Let((v, _, _), _) -> v.CompiledName
+        | _ -> "failed to get name of binding"
+
+type FSharpUnionCase with
+    member this.GetPats() =
+        if this.HasFields then
+            [ SynPat.Paren(SynPat.Tuple(false, [ for f in this.Fields -> f.Name.Named() ], Range.Zero), range.Zero) ]
+        else
+            []
+        |> SynArgPats.Pats

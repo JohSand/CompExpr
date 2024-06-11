@@ -447,7 +447,7 @@ and parseDecisionTree (fsharpExpr: FSharpExpr) (result: (_ * FSharpExpr) list) =
         let pat = getDecisionTreePat test
         let whenExpr = toUntyped ifExpr
         let (_, thenExpr) = result[case1]
-        let (_, elseExpr) = result[case2]
+        
 
         //let inner =
         //    SynExpr.IfThenElse(
@@ -487,7 +487,7 @@ and parseDecisionTree (fsharpExpr: FSharpExpr) (result: (_ * FSharpExpr) list) =
                 BarRange = Some(range.Zero)
             }
         )
-
+        let (_, elseExpr) = result[case2]
         yield! parseDecisionTree elseExpr result
 
         let (_, expr2) = result[case3]

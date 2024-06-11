@@ -156,6 +156,7 @@ let getArgs (memberOrFunctionValue: FSharpMemberOrFunctionOrValue) =
         createSynPat memberOrFunctionValue.FullType memberOrFunctionValue.LogicalName
 
 let createBinding (value: FSharpMemberOrFunctionOrValue) body =
+    let headPat = SynPat.Named(Ident.ofString value.LogicalName, value.IsMemberThisValue, None, Text.range ())
     SynBinding(
         None,
         SynBindingKind.Normal,//standAlone?
@@ -164,7 +165,7 @@ let createBinding (value: FSharpMemberOrFunctionOrValue) body =
         [],
         PreXmlDoc.Empty,
         valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
-        headPat = SynPat.Named(Ident.ofString value.LogicalName, value.IsMemberThisValue, None, Text.range ()),
+        headPat = headPat,
         //SynPat.Wild(Text.range.Zero),
         returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [])),
         expr = body,
