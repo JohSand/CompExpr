@@ -66,7 +66,7 @@ type SynExpr with
 
 let makeType (str: string) =
     let typeName =
-        str |> (_.Split(".")) |> Array.map Ident.ofString |> List.ofArray
+        str |> (fun s -> s.Split(".")) |> Array.map Ident.ofString |> List.ofArray
     SynType.LongIdent(LongIdentWithDots(typeName, []))
 
 let makeGenericType (typeName) (genericTypes) =
