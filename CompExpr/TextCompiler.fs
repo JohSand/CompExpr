@@ -2,7 +2,7 @@
 
 
 open CompExpr.ExprHelpers
-
+open CompExpr.MapperV2
 open System
 open System.IO
 open Fantomas
@@ -166,9 +166,9 @@ let rec private getUntypedParseTree =
     // Represents the declaration of a member, function or value, including the parameters and body of the member
     | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value, args: list<list<_>>, body: FSharpExpr) ->
         //let wat = toUntyped body
-        [ value.LogicalName, args, Mapper.toUntyped body ]
+        [ value.LogicalName, args,  body.ToUntyped() ]
     // Represents the declaration of a static initialization action
-    | FSharpImplementationFileDeclaration.InitAction body -> [ "anon", [], Mapper.toUntyped body ]
+    | FSharpImplementationFileDeclaration.InitAction body -> [ "anon", [], body.ToUntyped() ]
 
 let toLower str =
     async {
