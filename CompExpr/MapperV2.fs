@@ -59,7 +59,7 @@ type SynExpr with
         match expr with
         | SynExpr.Tuple(_, [ SynExpr.Const(SynConst.Unit,_) ], _, _)
             -> SynExpr.Const(SynConst.Unit, Range.Zero)
-        | SynExpr.Null _
+        //| SynExpr.Null _
         | SynExpr.Const(SynConst.Unit,_)
             -> expr
         | _ ->
@@ -100,13 +100,6 @@ type SynExpr with
             this.Apply(t.WrapInParens())
 
     member this.Apply() = this.Apply(SynExpr.Const(SynConst.Unit, Range.Zero))
-
-    /// f expr
-    member args.ApplyTo(f) =
-        SynExpr.App(ExprAtomicFlag.Atomic, false, funcExpr = f, argExpr = args, range = Range.Zero)
-
-    member args.ApplyToInfix(f) =
-        SynExpr.App(ExprAtomicFlag.Atomic, true, funcExpr = f, argExpr = args, range = Range.Zero)
 
     member expr.WithTypeArgs(typeArgs) =
         SynExpr.TypeApp(
@@ -187,8 +180,22 @@ type ListExtensions =
         this.LambdaExpr([ arg ])
 
     [<Extension>]
-    static member Tuple(this: FSharpExpr list) =
-        this |> List.map (_.ToUntyped()) |> _.Tuple()
+    static member Tuple(args: FSharpExpr list) =
+        if args.Length = 1 then
+            args[0].ToUntyped()
+        else
+            args 
+            |> List.map (_.ToUntyped())
+            |> List.mapi (fun i s -> 
+                //having a lambda in a tupled call requires parens, or the comma will be 
+                //interpreted as a tuple in the lambda. Work without if the lambda is the last arg
+                //since then we wont have any trailing comma.
+                if s.RequireParens() && i <> args.Length - 1 then
+                    s.WrapInParens()
+                else 
+                    s
+            )
+            |> _.Tuple()
 
 type SynType with 
     member this.TypeArgs(genericTypes) =
@@ -242,10 +249,7 @@ type FSharpType with
 
         elif (fullType.IsTupleType) then
             //todo
-            SynPat.Paren(
-                (logicalName.Typed(fullType)),
-                Range.Zero
-            )
+            SynPat.Paren(logicalName.Typed(fullType), Range.Zero)
         else
             SynPat.Paren(logicalName.Named(), Range.Zero)
 
@@ -355,19 +359,12 @@ type FSharpExpr with
                 case.CompiledName
             ].LongIdent().Apply([])
 
-        | NewUnionCase(t, case, expr) ->
-            let arg = expr |> List.map (_.ToUntyped()) |> _.Tuple()
-
-            let ident =
+        | NewUnionCase(t, case, expr) ->                
+            [
+                t.TypeDefinition.DisplayName
+                case.CompiledName
+            ].LongIdent().Apply(expr)
                 
-                    [
-                        t.TypeDefinition.DisplayName
-                        case.CompiledName
-                    ].LongIdent()
-                
-
-            arg.WrapInParens().ApplyTo(ident)
-
         | Value value -> value.LogicalName.IdentExpr()
         | TupleGet(b, index, (Value value)) -> 
             [ value.LogicalName; $"Item{(index + 1)}" ].LongIdent()
@@ -450,25 +447,8 @@ type FSharpExpr with
             if f.IsPropertyGetterMethod then
                 callingEntity.ToUntyped().AppendIdent( [f.LogicalName.Replace("get_", "") ])
             else
-                let argsToTheCall = 
-                    if args.Length = 1 then
-                        args[0].ToUntyped()
-                    else
-                        args 
-                        |> List.map (_.ToUntyped())
-                        |> List.mapi (fun i s -> 
-                            //having a lambda in a tupled call requires parens, or the comma will be 
-                            //interpreted as a tuple in the lambda. Work without if the lambda is the last arg
-                            //since then we wont have any trailing comma.
-                            if s.RequireParens() && i <> args.Length - 1 then
-                                s.WrapInParens()
-                            else 
-                                s
-                        )
-                       // |> List.rev
-                        |> _.Tuple()
                 //.WithTypeArgs(genericArgs)
-                callingEntity.ToUntyped().AppendIdent( [f.LogicalName ]).Apply(argsToTheCall.WrapInParens())
+                callingEntity.ToUntyped().AppendIdent( [f.LogicalName ]).Apply(args.Tuple().WrapInParens())
         //operators
         //fsharp function calls
 
@@ -487,17 +467,9 @@ type FSharpExpr with
 
         | Call(None, f, _, genericArgs, []) -> 
             //with no args, we need generic args, since they can never be infered.
-            [ 
-                f.ApparentEnclosingEntity.CompiledName
-                f.CompiledName 
-            ].LongIdent().WithTypeArgs(genericArgs).Apply()
+            f.LongIdent().WithTypeArgs(genericArgs).Apply()
 
         | Call(None, f, _, genericArgs, args) ->
-             f.LongIdent().Apply(args)
-            //[ 
-            //    f.ApparentEnclosingEntity.CompiledName
-            //    f.CompiledName  
-            //].LongIdent().Apply(args)
-
+            f.LongIdent().Apply(args)
         | a ->
             "invalidArg".Apply("fsharpExpr").Apply(sprintf "%A." a)
