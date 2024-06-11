@@ -39,18 +39,16 @@ let a () = task {
 let a () =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay(
-                fun () ->
-                    let chan = Channel.CreateUnbounded<int>() in
+            builder.Delay (fun () ->
+                let chan = Channel.CreateUnbounded<int>() in
 
-                    builder.Bind(
-                        chan.Reader.ReadAsync(new System.Threading.CancellationToken()),
-                        fun (_arg1: int) ->
-                            let reader = _arg1
-                            chan.Writer.Complete(null)
-                            builder.Zero()
-                    )
-            )
+                builder.Bind(
+                    chan.Reader.ReadAsync(new System.Threading.CancellationToken()),
+                    fun (_arg1: int) ->
+                        let reader = _arg1
+                        chan.Writer.Complete(null)
+                        builder.Zero()
+                ))
         ))
         task
 "
@@ -509,21 +507,19 @@ let rec fib x = tramp {
         "\
 let fib (x: int) =
     (fun (builder: TrampolineBuilder) ->
-        builder.Delay(
-            fun () ->
-                builder.Bind(
-                    A.fib (x - 1),
-                    fun (_arg1: int) ->
-                        let a = _arg1
+        builder.Delay (fun () ->
+            builder.Bind(
+                A.fib (x - 1),
+                fun (_arg1: int) ->
+                    let a = _arg1
 
-                        builder.Bind(
-                            A.fib (x - 2),
-                            fun (_arg2: int) ->
-                                let b = _arg2
-                                builder.Return(a + b)
-                        )
-                )
-        ))
+                    builder.Bind(
+                        A.fib (x - 2),
+                        fun (_arg2: int) ->
+                            let b = _arg2
+                            builder.Return(a + b)
+                    )
+            )))
         tramp
 "
     let! result = TextCompiler.toLower fsharp
