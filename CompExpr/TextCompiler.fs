@@ -83,48 +83,8 @@ let private getTypedParseTree (input) : Async<_> =
             | Some fc -> return Ok(fc.Declarations)
     }
 
-let private createLetDecl bindingName (args: list<list<FSharpMemberOrFunctionOrValue>>) (bindingBody: SynExpr) =
-    let range = bindingBody.Range
-
-    let myArgs =
-        if List.isNotEmpty args then
-            SynPat.LongIdent(
-                LongIdentWithDots.LongIdentWithDots([ Ident(bindingName, range) ], []),
-                None,
-                None,
-                None,
-                SynArgPats.Pats(args |> List.collect id |> List.map getArgs),
-                None,
-                range
-            )
-        else
-            SynPat.Named(Ident.ofString bindingName, false, None, range)
-
-    SynModuleDecl.Let(
-        false,
-        [
-            SynBinding.SynBinding(
-                None,
-                SynBindingKind.Normal,
-                false,
-                false,
-                [],
-                PreXmlDoc.Empty,
-                SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None), //here
-                myArgs,
-                None,
-                bindingBody,
-                range,
-                DebugPointAtBinding.Yes(range),
-                {
-                    EqualsRange = Some(Text.range ())
-                    LetKeyword = Some range
-                }
-            )
-
-        ],
-        Text.range ()
-    )
+let private createLetDecl (bindingName: string) (args: list<list<FSharpMemberOrFunctionOrValue>>) (bindingBody: SynExpr) =
+    SynModuleDecl.Let(false, [ bindingName.IdentPat(args |> List.collect id).CreateBining(bindingBody) ], Text.range ())
 
 let private createAnonymousModule members =
     SynModuleOrNamespace(

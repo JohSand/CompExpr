@@ -45,12 +45,48 @@ type String with
     member this.IdentExpr() =   
         SynExpr.Ident(this.Ident())
 
+    member this.IdentPat(args: FSharpMemberOrFunctionOrValue list) =
+        if List.isEmpty args then
+            this.Named()
+        else
+            SynPat.LongIdent(
+                this.LongIdentWithDots(),
+                None,
+                None,
+                None,
+                SynArgPats.Pats(args |> List.map (_.getArgs())),
+                None,
+                Range.Zero
+            )
+            //SynPat.Named(Ident.ofString bindingName, false, None, range)
+
     member this.LongIdentExpr() =
         SynExpr.LongIdent(false, this.LongIdentWithDots(), None, Range.Zero)
 
 type SynPat with
     member this.TypedPat(typ) = 
         SynPat.Typed(this, typ, Range.Zero)
+
+    member this.CreateBining(body, ?isMutable) =
+        SynBinding(
+            None,
+            SynBindingKind.Normal,
+            false,
+            isMutable |> Option.defaultValue false,
+            [],
+            PreXmlDoc.Empty,
+            valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
+            headPat = this,
+            //SynPat.Wild(Text.range.Zero),
+            returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [])),
+            expr = body,
+            range = range.Zero,
+            debugPoint = DebugPointAtBinding.Yes(Text.range ()),
+            trivia = {
+                LetKeyword = Some(range.Zero)
+                EqualsRange = Some(range.Zero)
+            }
+        )   
 
 type SynExpr with
 
@@ -93,11 +129,12 @@ type SynExpr with
 
     member this.Apply(args: FSharpExpr list) =
         match args with
+        | [] -> 
+            this
         | [ arg ] ->
             this.Apply(arg.ToUntyped().WrapInParens())
         | args ->
-            let (t: SynExpr) = args.Tuple()
-            this.Apply(t.WrapInParens())
+            this.Apply(args.Tuple().WrapInParens())
 
     member this.Apply() = this.Apply(SynExpr.Const(SynConst.Unit, Range.Zero))
 
@@ -131,15 +168,17 @@ type SynExpr with
             true
         | _ -> false
 
-    member this.AppendIdent(idents: string list) =
+    member this.AppendIdent(f: FSharpMemberOrFunctionOrValue) =
+        let name = if f.IsPropertyGetterMethod then f.LogicalName.Replace("get_", "") else f.LogicalName
+        let i = name.Ident()
         match this with
         | SynExpr.LongIdent (_,LongIdentWithDots(ids, _),_,_) -> 
-            let (LongIdentWithDots(moreIds,_)) = idents.LongIdentWithDots()
-            SynExpr.LongIdent(false, LongIdentWithDots(ids @ moreIds, []), None, Range.Zero)
+            SynExpr.LongIdent(false, LongIdentWithDots(ids @ [i], []), None, Range.Zero)
         | SynExpr.Ident ident -> 
-            let (LongIdentWithDots(moreIds,_)) = idents.LongIdentWithDots()
-            SynExpr.LongIdent(false, LongIdentWithDots([ ident ] @ moreIds, []), None, Range.Zero)
-        | _ -> failwith ""
+            SynExpr.LongIdent(false, LongIdentWithDots([ ident; i ], []), None, Range.Zero)
+        | _ -> 
+            let idents = [ "Failed"; "To"; "Build"; "Ident" ].LongIdentWithDots()
+            SynExpr.LongIdent(false, idents, None, Range.Zero)
 
 type String with
     member this.Apply(args: string) =
@@ -180,7 +219,7 @@ type ListExtensions =
         this.LambdaExpr([ arg ])
 
     [<Extension>]
-    static member Tuple(args: FSharpExpr list) =
+    static member Tuple(args: FSharpExpr list) : SynExpr =
         if args.Length = 1 then
             args[0].ToUntyped()
         else
@@ -243,16 +282,6 @@ type FSharpType with
         else
             "todo".LongIdent()
 
-    member fullType.ToSynPat (logicalName: string) =
-        if (fullType.HasTypeDefinition) then
-            logicalName.Typed(fullType)
-
-        elif (fullType.IsTupleType) then
-            //todo
-            SynPat.Paren(logicalName.Typed(fullType), Range.Zero)
-        else
-            SynPat.Paren(logicalName.Named(), Range.Zero)
-
 type FSharpMemberOrFunctionOrValue with
     member this.Named() =
         SynPat.Named(this.LogicalName.Ident(), this.IsMemberThisValue, None, Range.Zero)
@@ -260,29 +289,15 @@ type FSharpMemberOrFunctionOrValue with
     member this.getArgs () =
         if this.FullType.HasTypeDefinition && this.FullType.TypeDefinition.DisplayName = "unit" then
             SynPat.Const(SynConst.Unit, Range.Zero)
+        elif (this.FullType.HasTypeDefinition) then
+            SynPat.Paren(this.LogicalName.Typed(this.FullType), Range.Zero)
+        elif (this.FullType.IsTupleType) then
+            SynPat.Paren(this.LogicalName.Typed(this.FullType), Range.Zero)
         else
-            SynPat.Paren(this.FullType.ToSynPat this.LogicalName, Range.Zero)
-            
+            this.LogicalName.Named() 
+
     member value.createBinding body =
-        SynBinding(
-            None,
-            SynBindingKind.Normal,
-            false,
-            value.IsMutable,
-            [],
-            PreXmlDoc.Empty,
-            valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
-            headPat = value.Named(),
-            //SynPat.Wild(Text.range.Zero),
-            returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [])),
-            expr = body,
-            range = range.Zero,
-            debugPoint = DebugPointAtBinding.Yes(Text.range ()),
-            trivia = {
-                LetKeyword = Some(range.Zero)
-                EqualsRange = Some(range.Zero)
-            }
-        )      
+        value.Named().CreateBining(body, value.IsMutable)
 
 
     member f.LongIdent() =
@@ -296,28 +311,21 @@ type FSharpMemberOrFunctionOrValue with
         else
             if f.IsPropertyGetterMethod then
                 [ f.ApparentEnclosingEntity.CompiledName; f.CompiledName.Replace("get_", "") ].LongIdent()
-            else
-                
+            else                
                 [ f.ApparentEnclosingEntity.CompiledName; f.CompiledName ].LongIdent()
                 
 
 type FSharpExpr with
     member this.ToUntyped(): SynExpr =
         match this with
-        | Application(Value _ as expr, types, [ arg ]) ->
-            let x = expr.ToUntyped()
-            x.Apply(arg.ToUntyped())
-
-        | Application(expr, types, [ arg ]) ->
-            let x = expr.ToUntyped().WrapInParens()
-            x.Apply(arg.ToUntyped())
-
-           //expr.ToUntyped().Apply(arg.ToUntyped())
         | Application(expr, types, args) ->
-            expr.ToUntyped().WrapInParens().Apply(args.Tuple())
+            let app = expr.ToUntyped()
+            if app.RequireParens() then
+                app.WrapInParens().Apply(args.Tuple())
+            else
+                app.Apply(args.Tuple())
         | Lambda(args, expr) ->
-            let l = expr.ToUntyped()
-            l.LambdaExpr(args.getArgs())
+            expr.ToUntyped().LambdaExpr(args.getArgs())
         | Const(c, _) ->
             match c with
             | :? unit -> SynExpr.Const(SynConst.Unit, Range.Zero)
@@ -352,13 +360,6 @@ type FSharpExpr with
                 range = Option.defaultValue Range.Zero inKeyword,
                 trivia = { InKeyword = inKeyword }
             )
-        //failwith ""
-        | NewUnionCase(typ, case, []) ->
-            [
-                typ.TypeDefinition.DisplayName
-                case.CompiledName
-            ].LongIdent().Apply([])
-
         | NewUnionCase(t, case, expr) ->                
             [
                 t.TypeDefinition.DisplayName
@@ -392,7 +393,7 @@ type FSharpExpr with
             )
         | DefaultValue expr ->
             if expr.TypeDefinition.IsValueType then
-                expr.TypeDefinition.FullName.LongIdent().TypeArgs(expr.GenericArguments).New(SynExpr.Const(SynConst.Unit, range.Zero))                
+                expr.TypeDefinition.FullName.LongIdent().TypeArgs(expr.GenericArguments).New([])                
             else
                 SynExpr.Null(Range.Zero)
 
@@ -442,34 +443,30 @@ type FSharpExpr with
             [ caller.CompiledName; field.Name ].LongIdent()
 
         | Call(Some(callingEntity), f, _, genericArgs, args) ->
-            //eg Thing.do a, Thing.other a b, Thing.third (a, b), obj.Method(a, b) etc
-            //todo handle issues with logicalName, such as get_
-            if f.IsPropertyGetterMethod then
-                callingEntity.ToUntyped().AppendIdent( [f.LogicalName.Replace("get_", "") ])
+            if List.isEmpty args && not f.IsPropertyGetterMethod then
+                //not a getter means we compile in a '()' to the apply.
+                callingEntity.ToUntyped().AppendIdent(f).WithTypeArgs(genericArgs).Apply()
             else
-                //.WithTypeArgs(genericArgs)
-                callingEntity.ToUntyped().AppendIdent( [f.LogicalName ]).Apply(args.Tuple().WrapInParens())
-        //operators
-        //fsharp function calls
+                callingEntity.ToUntyped().AppendIdent(f).Apply(args)
 
-        | Call(None, f, _, genericArgs, args) when f.CompiledName.StartsWith("op_") ->
+        //operators
+        | Call(None, f, _, _, args) when f.CompiledName.StartsWith("op_") ->
             args 
             |> List.map (_.ToUntyped())
             |> List.fold (_.ApplyInfix) (f.CompiledName.LongIdentExpr())
 
-        | Call(None, f, _, genericArgs, args) when f.CurriedParameterGroups.Count > 1 ->
+        //fsharp function calls
+        | Call(None, f, _, _, args) when f.CurriedParameterGroups.Count > 1 ->
             args 
             |> List.map (_.ToUntyped())            
             |> List.fold (_.Apply) (f.FullName.LongIdentExpr())
 
-        | Call(None, f, _, [], []) -> 
-            f.LongIdent()
-
-        | Call(None, f, _, genericArgs, []) -> 
+        | Call(None, f, _, (_::_ as genericArgs), []) -> 
             //with no args, we need generic args, since they can never be infered.
             f.LongIdent().WithTypeArgs(genericArgs).Apply()
-
+        //basic calls
         | Call(None, f, _, genericArgs, args) ->
             f.LongIdent().Apply(args)
+
         | a ->
             "invalidArg".Apply("fsharpExpr").Apply(sprintf "%A." a)
