@@ -112,7 +112,7 @@ let ``Test simple lambda with typed argument`` () =
             Code.toText(fun (a: int) -> a)            
 
         let! result = TextCompiler.toLower fsharp
-        let expected = "let patternInput (a) = a\r\n"
+        let expected = "let patternInput a = a\r\n"
         do Assert.Equal(expected, result)
     }
 
@@ -132,7 +132,7 @@ let ``Test single argument let`` () =
     async {
         let fsharp = "let f a = 1"
         let! result = TextCompiler.toLower fsharp
-        let expected = "let f (a) = 1\r\n"
+        let expected = "let f a = 1\r\n"
         do Assert.Equal(expected, result)
     }
 
@@ -414,7 +414,7 @@ let e (s: System.Collections.Generic.IAsyncEnumerable<_>) f =
 
         let expected =
             "\
-let e (s: IAsyncEnumerable<'a>) (f) =
+let e (s: IAsyncEnumerable<'a>) f =
     (fun (builder: TaskBuilder) ->
         builder.Run(
             builder.Delay (fun () ->
