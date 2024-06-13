@@ -234,7 +234,7 @@ let ``Test match call2`` () =
         let expected =
             "\
 let a () =
-    let matchValue = Option.None  in
+    let matchValue = Option.None in
 
     match matchValue with
     | Some (Value) ->
@@ -246,8 +246,31 @@ let a () =
         do Assert.Equal(expected, result)
     }
 
+
+
 [<Fact>]
 let ``Test match call3`` () =
+    async {
+        let fsharp = 
+            "let a () = match Choice1Of3 () with Choice1Of3 _ -> 1 | Choice2Of3 _ -> 2 | Choice3Of3 _ -> 3"
+        let! result = TextCompiler.toLower fsharp
+
+        let expected =
+            "\
+let a () =
+    let matchValue = Choice.Choice1Of3() in
+
+    match matchValue with
+    | Choice2Of3 (Item) -> 2
+    | Choice3Of3 (Item) -> 3
+    | _ -> 1
+"
+
+        do Assert.Equal(expected, result)
+    }
+
+[<Fact>]
+let ``Test match call3 when case`` () =
     async {
         let fsharp = 
             "let a () = match None with | None -> 1 | Some (x: int) when x > 1 -> x | Some x -> 2"
@@ -256,7 +279,7 @@ let ``Test match call3`` () =
         let expected =
             "\
 let a () =
-    let matchValue = Option.None  in
+    let matchValue = Option.None in
 
     match matchValue with
     | Some (Value) when

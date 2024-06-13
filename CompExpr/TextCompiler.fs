@@ -1,7 +1,6 @@
 ﻿module CompExpr.TextCompiler
 
 
-open CompExpr.ExprHelpers
 open CompExpr.MapperV2
 open System
 open System.IO
@@ -84,7 +83,7 @@ let private getTypedParseTree (input) : Async<_> =
     }
 
 let private createLetDecl (bindingName: string) (args: list<list<FSharpMemberOrFunctionOrValue>>) (bindingBody: SynExpr) =
-    SynModuleDecl.Let(false, [ bindingName.IdentPat(args |> List.collect id).CreateBining(bindingBody) ], Text.range ())
+    SynModuleDecl.Let(false, [ bindingName.IdentPat(args |> List.collect id).SynBinding(bindingBody) ], Text.range ())
 
 let private createAnonymousModule members =
     SynModuleOrNamespace(
