@@ -9,7 +9,7 @@
         <Compile Include="TextCompiler.fs" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="Fantomas.Core" Version="6.3.9" />
+        <PackageReference Include="Fantomas.Core" Version="6.3.0" />
         <PackageReference Include="FSharp.Quotations.Evaluator" Version="2.1.0" />
         <PackageReference Include="FSharp.Compiler.Service" Version="43.8.101" />
     </ItemGroup>

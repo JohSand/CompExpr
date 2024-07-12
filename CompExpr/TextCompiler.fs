@@ -4,7 +4,7 @@
 open CompExpr.MapperV2
 open System
 open System.IO
-open Fantomas
+
 open FSharp.Compiler
 open FSharp.Compiler.Syntax
 open FSharp.Compiler.SyntaxTrivia
@@ -12,7 +12,7 @@ open FSharp.Compiler.Xml
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Text
-open Fantomas.Core
+
 
 
 let private checker = FSharpChecker.Create(keepAssemblyContents = true)
@@ -83,6 +83,9 @@ let private getTypedParseTree (input) : Async<_> =
             | None -> return Error $"%A{res.Diagnostics}"
             | Some fc -> return Ok(fc.Declarations)
     }
+
+open Fantomas
+open Fantomas.Core
 open Fantomas.FCS.Syntax
 open Fantomas.FCS.SyntaxTrivia
 open Fantomas.FCS.Text
@@ -100,7 +103,15 @@ let private createAnonymousModule members =
         longId = [ Ident("Tmp", range.Zero) ],
         isRecursive = false,
         kind = SynModuleOrNamespaceKind.AnonModule,
-        decls = [ for (name, args, body) in members -> createLetDecl name args body ],
+        decls = 
+            [ for (name: string, args, body) in members -> 
+                SynModuleDecl.Expr(body, range.Zero)
+                // SynModuleDecl.Let(
+                //     false, 
+                //     [ name.IdentPat(args |> List.collect id).SynBinding(body) ], 
+                //     range.Zero
+                // )
+            ],
         xmlDoc = PreXmlDoc.Empty,
         attribs = [],
         accessibility = None,
@@ -136,7 +147,7 @@ let rec private getUntypedParseTree =
     | FSharpImplementationFileDeclaration.Entity(entity, decls) -> [
         for decl in decls do
             yield! getUntypedParseTree decl
-      ]
+        ]
     // Represents the declaration of a member, function or value, including the parameters and body of the member
     | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value, args: list<list<_>>, body: FSharpExpr) ->
         //let wat = toUntyped body
@@ -149,5 +160,5 @@ let toLower str =
         match! getTypedParseTree str with
         | Ok([ decls ]) -> return! decls |> getUntypedParseTree |> writeFormated
         | Error s -> return failwithf $"%s{s}"
-        | _ -> return failwith ""
+        | Ok(l) -> return failwithf "%A" l
     }

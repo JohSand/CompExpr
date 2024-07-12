@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
 
     <IsPackable>false</IsPackable>
     <GenerateProgramFile>false</GenerateProgramFile>
@@ -23,7 +23,7 @@
     </PackageReference>
   </ItemGroup>
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="6.0.3" />
+        <PackageReference Update="FSharp.Core" Version="8.0.101" />
     </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CompExpr\CompExpr.fsproj" />

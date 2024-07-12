@@ -23,10 +23,10 @@ type SynExprMatchTrivia with
         { SynExprMatchTrivia.WithKeyword = range.Zero;
           SynExprMatchTrivia.MatchKeyword = range.Zero
          }
-type SynExprSequentialTrivia with
-    static member Empty : SynExprSequentialTrivia =
-        { SynExprSequentialTrivia.SeparatorRange = None;
-         }
+// type SynExprSequentialTrivia with
+//     static member Empty : SynExprSequentialTrivia =
+//         { SynExprSequentialTrivia.SeparatorRange = None;
+//          }
 
 type SynBindingReturnInfoTrivia with
     static member Empty : SynBindingReturnInfoTrivia =
@@ -91,7 +91,8 @@ type SynPat with
     member this.TypedPat(typ) = 
         SynPat.Typed(this, typ, range.Zero)
 
-    member headPat.SynBinding(expr, ?isMutable) =
+    member headPat.SynBinding(expr: SynExpr, ?isMutable) =
+        //failwithf "%A" expr
         SynBinding(
             None,
             SynBindingKind.Normal,
@@ -101,14 +102,35 @@ type SynPat with
             PreXmlDoc.Empty,
             valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
             headPat = headPat,
-            returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [], SynBindingReturnInfoTrivia.Empty)),
+            returnInfo = None,//Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [], SynBindingReturnInfoTrivia.Empty)),
             expr = expr,
             range = range.Zero,
-            debugPoint = DebugPointAtBinding.Yes(range.Zero),
+            debugPoint = DebugPointAtBinding.NoneAtInvisible,
             trivia = {
-                LeadingKeyword = SynLeadingKeyword.Synthetic
+                LeadingKeyword = SynLeadingKeyword.Let(range.Zero)
+                InlineKeyword = None
                 EqualsRange = Some(range.Zero)
-                InlineKeyword = Some(range.Zero)
+            }
+        )
+    member headPat.SynBinding2(expr: SynExpr, r) =
+        //failwithf "%A" expr
+        SynBinding(
+            None,
+            SynBindingKind.Normal,
+            false,
+            true,
+            [],
+            PreXmlDoc.Empty,
+            valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
+            headPat = headPat,
+            returnInfo = None,//Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [], SynBindingReturnInfoTrivia.Empty)),
+            expr = expr,
+            range = r,
+            debugPoint = DebugPointAtBinding.NoneAtInvisible,
+            trivia = {
+                LeadingKeyword = SynLeadingKeyword.Let(range.Zero)
+                InlineKeyword = None
+                EqualsRange = Some(r)
             }
         )
 
@@ -212,10 +234,10 @@ type SynExpr with
         let name = if f.IsPropertyGetterMethod then f.LogicalName.Replace("get_", "") else f.LogicalName
         let i = name.Ident()
         match this with
-        | SynExpr.LongIdent (_,LongIdentWithDots(ids, _),_,_) -> 
-            SynExpr.LongIdent(false, LongIdentWithDots(ids @ [i], []), None, Range.Zero)
+        | SynExpr.LongIdent (_, SynLongIdent(ids, _, _),_,_) -> 
+            SynExpr.LongIdent(false, SynLongIdent(ids @ [i], [], [] ), None, Range.Zero)
         | SynExpr.Ident ident -> 
-            SynExpr.LongIdent(false, LongIdentWithDots([ ident; i ], []), None, Range.Zero)
+            SynExpr.LongIdent(false, SynLongIdent([ ident; i ], [], []), None, Range.Zero)
         | _ -> 
             let idents = [ "Failed"; "To"; "Build"; "Ident" ].LongIdentWithDots()
             SynExpr.LongIdent(false, idents, None, Range.Zero)
@@ -231,7 +253,7 @@ type String with
 type ListExtensions =
     [<Extension>]
     static member LongIdentWithDots(args: string list) =
-        LongIdentWithDots(args |> List.map (_.Replace("@", "").Ident()),  [ Range.Zero ])
+        SynLongIdent(args |> List.map (_.Replace("@", "").Ident()),  [ Range.Zero ], [])
 
     [<Extension>]
     static member LongIdent(this: string list) =
@@ -337,8 +359,8 @@ type FSharpMemberOrFunctionOrValue with
         else
             this.LogicalName.Named() 
 
-    member value.createBinding body =
-        value.Named().SynBinding(body, value.IsMutable)
+    // member value.createBinding body =
+    //     value.Named().SynBinding2(body, value.IsMutable)
 
 
     member f.LongIdent() =
@@ -367,7 +389,8 @@ type FSharpExpr with
                 app.Apply(args.Tuple())
         | Lambda(args, expr) ->
             expr.ToUntyped().LambdaExpr(args.getArgs())
-        | Const(c, _) ->
+        | Const(c, _a) ->
+            
             match c with
             | :? unit -> SynExpr.Const(SynConst.Unit, Range.Zero)
             | :? bool as b -> SynExpr.Const(SynConst.Bool b, Range.Zero)
@@ -390,19 +413,51 @@ type FSharpExpr with
         | Let((a, ex1, dbg: Syntax.DebugPointAtBinding), ex2) ->
             let inKeyword =
                 match dbg with
-                | Syntax.DebugPointAtBinding.Yes(_) -> 
+                | Syntax.DebugPointAtBinding.Yes(r) -> 
                     //todo
-                    Some(range.Zero)
+                    let a =
+                        Range.mkRange 
+                            ""
+                            (Position.mkPos r.StartLine (r.StartColumn))
+                            (Position.mkPos r.EndLine (r.EndColumn))
+                    //failwithf "%A\n%A" r a
+                    a
+                    |> Some
                 | _ -> None
-
-            SynExpr.LetOrUse(
-                false,
-                false,
-                bindings = [ a.createBinding(ex1.ToUntyped()) ],
-                body = ex2.ToUntyped(),
-                range = Option.defaultValue Range.Zero inKeyword,
-                trivia = { InKeyword = inKeyword }
-            )
+            let r = Option.defaultValue range.Zero inKeyword
+            SynExpr.Const(SynConst.Int64(9L), r)
+            //failwithf "%A" (r)
+            // SynExpr.LetOrUse(
+            //     false,
+            //     false,
+            //     bindings = [ 
+            //         //a.Named().SynBinding2(ex1.ToUntyped(), r)
+            //        // a.Named().SynBinding2(SynExpr.Const(SynConst.Int64(9L), range.Zero), r)
+            //         SynBinding(
+            //             None,
+            //             SynBindingKind.Normal,
+            //             false,
+            //             true,
+            //             [],
+            //             PreXmlDoc.Empty,
+            //             valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
+            //             headPat = a.Named(),
+            //             returnInfo = None,
+            //             expr = SynExpr.Const(SynConst.Int64(9L), range.Zero),
+            //             range = r,
+            //             debugPoint = DebugPointAtBinding.Yes(r),
+            //             trivia = {
+            //                 LeadingKeyword = SynLeadingKeyword.Let(range.Zero)
+            //                 InlineKeyword = None
+            //                 EqualsRange = Some(Range.shiftStart 0 1 r)
+            //             }
+            //         )
+            //         //a.createBinding(SynExpr.Const(SynConst.Unit, Option.defaultValue range.Zero inKeyword)) 
+            //     ],
+            //     body =  ex2.ToUntyped(), //unit
+            //     range = r,
+            //     trivia = { InKeyword = Some(range.Zero) }
+            // )
         | NewUnionCase(t, case, expr) ->                
             [
                 t.TypeDefinition.DisplayName
@@ -426,7 +481,7 @@ type FSharpExpr with
             let dbg = DebugPointAtSequential.SuppressBoth
             let e1 = ex1.ToUntyped()
             let e2 = ex2.ToUntyped()
-            SynExpr.Sequential(dbg, false, e1, e2, Range.Zero, SynExprSequentialTrivia.Zero)
+            SynExpr.Sequential(dbg, false, e1, e2, Range.Zero)
 
         | ValueSet(value, expr) ->
             SynExpr.LongIdentSet(
@@ -493,10 +548,11 @@ type FSharpExpr with
                 callingEntity.ToUntyped().AppendIdent(f).Apply(args)
 
         //operators
-        | Call(None, f, _, _, args) when f.CompiledName.StartsWith("op_") ->
+        | Call(None, f: FSharpMemberOrFunctionOrValue, _, _, args) when f.CompiledName.StartsWith("op_") ->
+            //failwithf "%O" f.DisplayName
             args 
             |> List.map (_.ToUntyped())
-            |> List.fold (_.ApplyInfix) (f.CompiledName.LongIdentExpr())
+            |> List.fold (_.ApplyInfix) (f.DisplayName.Replace("(", "").Replace(")", "").LongIdentExpr())
 
         //fsharp function calls
         | Call(None, f, _, _, args) when f.CurriedParameterGroups.Count > 1 ->
