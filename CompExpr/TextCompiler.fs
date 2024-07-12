@@ -12,6 +12,8 @@ open FSharp.Compiler.Xml
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Text
+open Fantomas.Core
+
 
 let private checker = FSharpChecker.Create(keepAssemblyContents = true)
 
@@ -81,42 +83,51 @@ let private getTypedParseTree (input) : Async<_> =
             | None -> return Error $"%A{res.Diagnostics}"
             | Some fc -> return Ok(fc.Declarations)
     }
+open Fantomas.FCS.Syntax
+open Fantomas.FCS.SyntaxTrivia
+open Fantomas.FCS.Text
+open Fantomas.FCS.Xml
 
-let private createLetDecl
-    (bindingName: string)
-    (args: list<list<FSharpMemberOrFunctionOrValue>>)
-    (bindingBody: SynExpr)
-    =
-    SynModuleDecl.Let(false, [ bindingName.IdentPat(args |> List.collect id).SynBinding(bindingBody) ], Text.range ())
+let private createLetDecl (bindingName: string) (args: list<list<FSharpMemberOrFunctionOrValue>>) (bindingBody: SynExpr) =
+    SynModuleDecl.Let(
+        false, 
+        [ bindingName.IdentPat(args |> List.collect id).SynBinding(bindingBody) ], 
+        range.Zero
+    )
 
 let private createAnonymousModule members =
     SynModuleOrNamespace(
-        longId = [ Ident("Tmp", Text.range ()) ],
+        longId = [ Ident("Tmp", range.Zero) ],
         isRecursive = false,
         kind = SynModuleOrNamespaceKind.AnonModule,
         decls = [ for (name, args, body) in members -> createLetDecl name args body ],
         xmlDoc = PreXmlDoc.Empty,
         attribs = [],
         accessibility = None,
-        range = Text.range ()
+        range = range.Zero,
+        trivia = { SynModuleOrNamespaceTrivia.LeadingKeyword = SynModuleOrNamespaceLeadingKeyword.None }
     )
 
 let private writeFormated members =
     async {
         let input =
             ParsedImplFileInput(
-                "tmp.fsx",
-                true,
-                QualifiedNameOfFile(Ident("Tmp", Text.range ())),
+                fileName = "tmp.fsx",
+                isScript = true,
+                qualifiedNameOfFile = QualifiedNameOfFile(Ident("Tmp", range.Zero)),
                 scopedPragmas = [],
                 hashDirectives = [],
-                modules = [ createAnonymousModule members ],
-                isLastCompiland = (true, true)
+                contents = [ createAnonymousModule members ],
+                flags = (true, true),
+                trivia =  { CodeComments = []; ConditionalDirectives = [] },
+                identifiers = Set.empty
             )
-            |> ParsedInput.ImplFile
+            //|> ParsedInput.ImplFile
+            // Unchecked.defaultof<ParsedImplFileInput>
+            |> FCS.Syntax.ParsedInput.ImplFile
 
-        let! wat = CodeFormatter.IsValidASTAsync(input)
-        return! CodeFormatter.FormatASTAsync(input, "/tmp.fsx", [], None, Fantomas.FormatConfig.FormatConfig.Default)
+        //let! wat = CodeFormatter.IsValidASTAsync(input)
+        return! CodeFormatter.FormatASTAsync(input, "/tmp.fsx")
     }
 
 let rec private getUntypedParseTree =
@@ -129,7 +140,7 @@ let rec private getUntypedParseTree =
     // Represents the declaration of a member, function or value, including the parameters and body of the member
     | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value, args: list<list<_>>, body: FSharpExpr) ->
         //let wat = toUntyped body
-        [ value.LogicalName, args, body.ToUntyped() ]
+        [ value.LogicalName, args,  body.ToUntyped() ]
     // Represents the declaration of a static initialization action
     | FSharpImplementationFileDeclaration.InitAction body -> [ "anon", [], body.ToUntyped() ]
 
