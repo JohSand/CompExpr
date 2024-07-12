@@ -22,13 +22,10 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>
-
+    <ItemGroup>
+        <PackageReference Update="FSharp.Core" Version="6.0.3" />
+    </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CompExpr\CompExpr.fsproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="6.0.3" />
-  </ItemGroup>
-
 </Project>
