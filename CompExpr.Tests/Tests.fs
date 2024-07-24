@@ -18,7 +18,7 @@ let ``Test static creator method`` () =
     async {
         let! result = TextCompiler.toLower "System.Threading.Channels.Channel.CreateUnbounded<int>()"
         let expected = "let anon = Channel.CreateUnbounded<int>()\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 
@@ -52,7 +52,7 @@ let a () =
         ))
         task
 "
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 
@@ -68,7 +68,7 @@ let ``Test variable let`` () =
         let fsharp = expr.Decompile()
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = let a = 1 in ()\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -80,7 +80,7 @@ let ``Test plus operator`` () =
             )
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = 1 + 2\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -91,7 +91,7 @@ let ``Test prefix operator`` () =
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = ~~~ 2\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -102,7 +102,7 @@ let ``Test simple lambda`` () =
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = fun () -> ()\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -113,7 +113,7 @@ let ``Test simple lambda with typed argument`` () =
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let patternInput a = a\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -124,7 +124,7 @@ let ``Test simple lambda with two typed arguments`` () =
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = fun (x: int) -> fun (y: int) -> x + y\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -133,7 +133,7 @@ let ``Test single argument let`` () =
         let fsharp = "let f a = 1"
         let! result = TextCompiler.toLower fsharp
         let expected = "let f a = 1\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -142,7 +142,7 @@ let ``Test single argument unit let`` () =
         let fsharp = "let f () = 1"
         let! result = TextCompiler.toLower fsharp
         let expected = "let f () = 1\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -151,7 +151,7 @@ let ``Test single typed argument let`` () =
         let fsharp = "let f (a: int) = a"
         let! result = TextCompiler.toLower fsharp
         let expected = "let f (a: int) = a\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -160,7 +160,7 @@ let ``Test multi typed argument let`` () =
         let fsharp = "let f (a: int) (b: int) = a"
         let! result = TextCompiler.toLower fsharp
         let expected = "let f (a: int) (b: int) = a\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -169,7 +169,7 @@ let ``Test single typed generic argument let`` () =
         let fsharp = "let f (a: System.Collections.Generic.List<_>) (b: int) = a"
         let! result = TextCompiler.toLower fsharp
         let expected = "let f (a: List<'a>) (b: int) = a\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -180,7 +180,7 @@ let ``Test calling a curried function`` () =
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = Microsoft.FSharp.Collections.List.map fun (x: obj) -> id (x) List.Empty\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -189,7 +189,7 @@ let ``Test lambda end parens`` () =
         let fsharp = "id (fun () -> ())"
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = id (fun () -> ())\r\n"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 let t = new System.Threading.Tasks.ValueTask<_>(1)
@@ -206,7 +206,7 @@ let a () =
     new System.Collections.Generic.List<'a>()
 "
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 let a () = let x = 1 in x
@@ -221,7 +221,7 @@ let ``Test match call`` () =
         let expected =
             "let a () = let a = 1 in a\r\n"
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -243,7 +243,7 @@ let a () =
     | _ -> 1
 "
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 
@@ -266,7 +266,7 @@ let a () =
     | _ -> 1
 "
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -293,7 +293,7 @@ let a () =
     | _ -> 1
 "
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -308,7 +308,7 @@ let a () =
     new System.Threading.Tasks.ValueTask<float>()
 "
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 let e () =
@@ -331,7 +331,7 @@ let e () =
         task
 "
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -371,7 +371,7 @@ let e (s: SemaphoreSlim) =
         task
 "
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 open System.Threading
@@ -474,7 +474,7 @@ let e (s: IAsyncEnumerable<'a>) f =
         task
 "
 
-        do Assert.Equal(expected, result)
+        do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -511,7 +511,7 @@ let e () =
 "
 
         let! result = TextCompiler.toLower fsharp
-        Assert.Equal(expected, result)
+        Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     }
 
 [<Fact>]
@@ -546,6 +546,6 @@ let fib (x: int) =
         tramp
 "
     let! result = TextCompiler.toLower fsharp
-    Assert.Equal(expected, result)
+    Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
     return ()
 }

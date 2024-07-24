@@ -1,0 +1,84 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monaco Editor with URL Storage and Submit Button</title>
+    <style>
+        #editor, #response-editor {
+            width: 1400px;
+            height: 300px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Monaco Editor with URL Storage and Submit Button</h1>
+    <div id="editor"></div>
+    <button id="submit-button">Submit Content</button>
+    <div id="response-editor"></div>
+
+    <!-- Monaco Editor Loader Script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs/loader.min.js"></script>
+    <script>
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            // Get initial content from URL fragment
+            function getContentFromUrl() {
+                let code = decodeURIComponent(window.location.hash.slice(1));
+                return atob(code) || [
+                    'function x() {',
+                    '\tconsole.log("Hello, world!");',
+                    '}'
+                ].join('\n');
+            }
+
+            var editor = monaco.editor.create(document.getElementById('editor'), {
+                value: getContentFromUrl(),
+                language: 'fsharp'
+            });
+
+            var responseEditor = monaco.editor.create(document.getElementById('response-editor'), {
+                value: 'Response will be displayed here...',
+                language: 'fsharp',
+                readOnly: true
+            });
+
+            // Update URL fragment when editor content changes
+            editor.onDidChangeModelContent(function() {
+                let code = encodeURIComponent(btoa(editor.getValue()));
+                window.location.hash = code;
+            });
+
+            // Listen for hashchange event to update editor content
+            window.addEventListener('hashchange', function() {
+                var newValue = getContentFromUrl();
+                if (newValue !== editor.getValue()) {
+                    editor.setValue(newValue);
+                }
+            });
+
+            // Submit button event listener
+            document.getElementById('submit-button').addEventListener('click', function() {
+                var content = editor.getValue();
+                fetch('/lowered', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content: content })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    //responseEditor.setValue(JSON.stringify(data, null, 2));
+                    responseEditor.setValue(data.data);
+                })
+                .catch((error) => {
+                    responseEditor.setValue('Error: ' + error);
+                });
+            });
+        });
+    </script>
+</body>
+</html>

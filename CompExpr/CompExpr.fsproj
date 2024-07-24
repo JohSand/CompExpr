@@ -1,17 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="MapperV2.fs" />
     <None Include="TestMe.fsx" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="Extensions.fs" />
     <Compile Include="TextCompiler.fs" />
-    <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Argu" Version="6.2.3" />
     <PackageReference Include="Fantomas" Version="4.7.9" />
     <PackageReference Include="FSharp.Compiler.Service" Version="41.0.3" />
     <PackageReference Include="FSharp.Quotations.Evaluator" Version="2.1.0" />
