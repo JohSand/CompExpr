@@ -17,8 +17,13 @@ module Program =
     [<EntryPoint>]
     let main args =
         //warmup
-
-        let _pp = TextCompiler.toLower "let a = ()" |> Async.RunSynchronously
+        try
+            let _pp = TextCompiler.toLower("let a = ()").GetAwaiter().GetResult()
+            ()
+        with
+        | exn -> 
+            Console.WriteLine("Exception during warmup")
+            Console.WriteLine(exn.Message)
 
         let builder = WebApplication.CreateBuilder(args)
         let app = builder.Build()
@@ -30,12 +35,15 @@ module Program =
                     "lowered",
                     RequestDelegate(fun ctx ->
                         task {
-                            //let query = ctx.Request.Query["code"]
-                            let! x = ctx.Request.ReadFromJsonAsync<{| content: string |}>()
-                            //let decoded = Encoding.UTF8.GetString(Convert.FromBase64String(query))
-                            let! lowered = TextCompiler.toLower (x.content)
-                            ctx.Response.Headers.ContentType <- "text/plain"
-                            do! ctx.Response.WriteAsJsonAsync({| data = lowered |})
+                            try
+                                let! x = ctx.Request.ReadFromJsonAsync<{| content: string |}>()
+                                let! lowered = TextCompiler.toLower (x.content)
+                                ctx.Response.Headers.ContentType <- "text/plain"
+                                do! ctx.Response.WriteAsJsonAsync({| data = lowered |})
+                            with
+                            | exn -> 
+                                ctx.Response.Headers.ContentType <- "text/plain"
+                                do! ctx.Response.WriteAsJsonAsync({| error = exn.ToString() |})                                
                             return ()
                         })
                 )

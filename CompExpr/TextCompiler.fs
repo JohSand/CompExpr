@@ -17,7 +17,7 @@ let private checker = FSharpChecker.Create(keepAssemblyContents = true)
 
 // Based on https://queil.net/2021/06/embedding-fsharp-compiler-nuget-references/
 let private resolveNugets input =
-    async {
+    task {
         match! checker.GetProjectOptionsFromScript($"%s{Path.GetTempFileName()}.fsx", SourceText.ofString input) with
         | projOptions, [] ->
             let! projResults = checker.ParseAndCheckProject(projOptions)
@@ -31,12 +31,21 @@ let private resolveNugets input =
                         | _ -> None)
                     |> Seq.groupBy id
                     |> Seq.map (fun (path, _) -> path)
-                | _ -> failwith ""
-        | _ -> return Seq.empty
+                | true -> 
+                    let errs = projResults.Diagnostics |> Array.map (_.Message)
+                    let msg = String.Join(Environment.NewLine, value = errs)
+                    failwith ("Failed to parse and  check project:" + msg)
+        | projOptions, diags -> 
+            
+            let errs = diags 
+                        |> List.map (_.Message) |> List.toArray
+            let msg = String.Join(Environment.NewLine, value = errs)
+            failwith ("Failed to resolve project options:" + msg)
+            return Seq.empty
     }
 
-let private getTypedParseTree (input) : Async<_> =
-    async {
+let private getTypedParseTree (input) =
+    task {
 
         let! nugets = resolveNugets input
 
@@ -98,7 +107,7 @@ let private createAnonymousModule members =
     )
 
 let private writeFormated members =
-    async {
+    task {
         let input =
             ParsedImplFileInput(
                 "tmp.fsx",
@@ -130,7 +139,7 @@ let rec private getUntypedParseTree =
     | FSharpImplementationFileDeclaration.InitAction body -> [ "anon", [], body.ToUntyped() ]
 
 let toLower str =
-    async {
+    task {
         match! getTypedParseTree str with
         | Ok([ decls ]) -> return! decls |> getUntypedParseTree |> writeFormated
         | Error s -> return failwithf $"%s{s}"

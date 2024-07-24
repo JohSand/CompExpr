@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monaco Editor with URL Storage and Submit Button</title>
+    <title>Basic computation expression lowerer</title>
     <style>
         #editor, #response-editor {
             width: 1400px;
@@ -14,7 +14,7 @@
     </style>
 </head>
 <body>
-    <h1>Monaco Editor with URL Storage and Submit Button</h1>
+    <h1>Basic computation expression lowerer</h1>
     <div id="editor"></div>
     <button id="submit-button">Submit Content</button>
     <div id="response-editor"></div>
@@ -28,9 +28,18 @@
             function getContentFromUrl() {
                 let code = decodeURIComponent(window.location.hash.slice(1));
                 return atob(code) || [
-                    'function x() {',
-                    '\tconsole.log("Hello, world!");',
-                    '}'
+                    '#r "nuget: IcedTasks, 0.5.4"',
+                    'open System.Threading.Tasks',
+                    'open IcedTasks',
+                    '',
+                    'let coldTask_dont_start_immediately() =',
+                    '    task {',
+                    '        let mutable someValue = 0',
+                    '        let fooColdTask = coldTask { someValue <- 42 }',
+                    '        // ColdTasks will not execute until they are called, similar to how Async works',
+                    '        // Calling fooColdTask will start t',
+                    '        do! fooColdTask()',
+                    '    }'
                 ].join('\n');
             }
 
