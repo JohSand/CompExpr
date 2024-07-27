@@ -65,44 +65,38 @@ module StateExtensions =
     let generateScenario () : State<unit> = failwith ""
 
 [<AbstractClass>]
-type Trampoline<'a> internal () = 
+type Trampoline<'a> internal () =
     abstract member Eval: unit -> 'a
 
-type private Return<'a> (a: 'a) =
+type private Return<'a>(a: 'a) =
     inherit Trampoline<'a>()
     override this.Eval() = a
 
-type private Suspend<'a> (cont: unit -> Trampoline<'a>) =
+type private Suspend<'a>(cont: unit -> Trampoline<'a>) =
     inherit Trampoline<'a>()
     override this.Eval() = cont().Eval()
 
-type private Bind<'a, 'b> (current: Trampoline<'a>, cont: 'a -> Trampoline<'b>) =
+type private Bind<'a, 'b>(current: Trampoline<'a>, cont: 'a -> Trampoline<'b>) =
     inherit Trampoline<'b>()
-    override this.Eval() = 
+
+    override this.Eval() =
         let a = current.Eval()
         (cont a).Eval()
 
 module Trampoline =
 
-    let ret (a: 'a) : Trampoline<'a> =
-        Return a
+    let ret (a: 'a) : Trampoline<'a> = Return a
 
-    let bind (f: 'a -> Trampoline<'b>) (t: Trampoline<'a>) : Trampoline<'b> =
-        Bind<_,_>(t, f)
+    let bind (f: 'a -> Trampoline<'b>) (t: Trampoline<'a>) : Trampoline<'b> = Bind<_, _>(t, f)
 
 type TrampolineBuilder() =
-    member this.Bind(a: Trampoline<'a> , f) = 
-        a |> Trampoline.bind f
+    member this.Bind(a: Trampoline<'a>, f) = a |> Trampoline.bind f
 
-    member this.Return(a: 'a) = 
-        a |> Trampoline.ret
+    member this.Return(a: 'a) = a |> Trampoline.ret
 
-    member this.Delay(f) =
-        Suspend(f) :> Trampoline<'a>
+    member this.Delay(f) = Suspend(f) :> Trampoline<'a>
 
 
 [<AutoOpen>]
 module TrampolineBuilder =
     let tramp = TrampolineBuilder()
-
-

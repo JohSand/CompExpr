@@ -82,7 +82,11 @@ let private getTypedParseTree (input) : Async<_> =
             | Some fc -> return Ok(fc.Declarations)
     }
 
-let private createLetDecl (bindingName: string) (args: list<list<FSharpMemberOrFunctionOrValue>>) (bindingBody: SynExpr) =
+let private createLetDecl
+    (bindingName: string)
+    (args: list<list<FSharpMemberOrFunctionOrValue>>)
+    (bindingBody: SynExpr)
+    =
     SynModuleDecl.Let(false, [ bindingName.IdentPat(args |> List.collect id).SynBinding(bindingBody) ], Text.range ())
 
 let private createAnonymousModule members =
@@ -125,7 +129,7 @@ let rec private getUntypedParseTree =
     // Represents the declaration of a member, function or value, including the parameters and body of the member
     | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value, args: list<list<_>>, body: FSharpExpr) ->
         //let wat = toUntyped body
-        [ value.LogicalName, args,  body.ToUntyped() ]
+        [ value.LogicalName, args, body.ToUntyped() ]
     // Represents the declaration of a static initialization action
     | FSharpImplementationFileDeclaration.InitAction body -> [ "anon", [], body.ToUntyped() ]
 

@@ -10,8 +10,7 @@ open Swensen.Unquote.Extensions
 open Microsoft.FSharp.Quotations
 
 type Code =
-    static member toText([<ReflectedDefinition()>]a: Expr<_>) =
-        a.Decompile()
+    static member toText([<ReflectedDefinition>] a: Expr<_>) = a.Decompile()
 
 [<Fact>]
 let ``Test static creator method`` () =
@@ -25,7 +24,7 @@ let ``Test static creator method`` () =
 [<Fact>]
 let ``Test csharp property accessor`` () =
     async {
-        let fsharp = 
+        let fsharp =
             "\
 let a () = task {
     let chan = System.Threading.Channels.Channel.CreateUnbounded<int>()       
@@ -33,8 +32,10 @@ let a () = task {
     chan.Writer.Complete()
 }        
             "
+
         let! result = TextCompiler.toLower fsharp
-        let expected = 
+
+        let expected =
             "\
 let a () =
     (fun (builder: TaskBuilder) ->
@@ -52,6 +53,7 @@ let a () =
         ))
         task
 "
+
         do Assert.Equal(expected, result)
     }
 
@@ -74,10 +76,7 @@ let ``Test variable let`` () =
 [<Fact>]
 let ``Test plus operator`` () =
     async {
-        let fsharp =
-            Code.toText(
-                1 + 2
-            )
+        let fsharp = Code.toText (1 + 2)
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = 1 + 2\r\n"
         do Assert.Equal(expected, result)
@@ -86,8 +85,7 @@ let ``Test plus operator`` () =
 [<Fact>]
 let ``Test prefix operator`` () =
     async {
-        let fsharp =
-            Code.toText(~~~ 2)            
+        let fsharp = Code.toText (~~~ 2)
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = ~~~ 2\r\n"
@@ -97,8 +95,7 @@ let ``Test prefix operator`` () =
 [<Fact>]
 let ``Test simple lambda`` () =
     async {
-        let fsharp =
-            Code.toText(fun () -> ())            
+        let fsharp = Code.toText (fun () -> ())
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = fun () -> ()\r\n"
@@ -108,8 +105,7 @@ let ``Test simple lambda`` () =
 [<Fact>]
 let ``Test simple lambda with typed argument`` () =
     async {
-        let fsharp =
-            Code.toText(fun (a: int) -> a)            
+        let fsharp = Code.toText (fun (a: int) -> a)
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let patternInput a = a\r\n"
@@ -119,8 +115,7 @@ let ``Test simple lambda with typed argument`` () =
 [<Fact>]
 let ``Test simple lambda with two typed arguments`` () =
     async {
-        let fsharp =
-            Code.toText(fun (a: int) (b: int) -> a + b)
+        let fsharp = Code.toText (fun (a: int) (b: int) -> a + b)
 
         let! result = TextCompiler.toLower fsharp
         let expected = "let anon = fun (x: int) -> fun (y: int) -> x + y\r\n"
@@ -175,11 +170,13 @@ let ``Test single typed generic argument let`` () =
 [<Fact>]
 let ``Test calling a curried function`` () =
     async {
-        let fsharp =
-            Code.toText(List.map id [])            
+        let fsharp = Code.toText (List.map id [])
 
         let! result = TextCompiler.toLower fsharp
-        let expected = "let anon = Microsoft.FSharp.Collections.List.map fun (x: obj) -> id (x) List.Empty\r\n"
+
+        let expected =
+            "let anon = Microsoft.FSharp.Collections.List.map fun (x: obj) -> id (x) List.Empty\r\n"
+
         do Assert.Equal(expected, result)
     }
 
@@ -214,12 +211,10 @@ let a () = let x = 1 in x
 [<Fact>]
 let ``Test match call`` () =
     async {
-        let fsharp = 
-            "let a () = match 1 with a -> a"
+        let fsharp = "let a () = match 1 with a -> a"
         let! result = TextCompiler.toLower fsharp
 
-        let expected =
-            "let a () = let a = 1 in a\r\n"
+        let expected = "let a () = let a = 1 in a\r\n"
 
         do Assert.Equal(expected, result)
     }
@@ -227,8 +222,7 @@ let ``Test match call`` () =
 [<Fact>]
 let ``Test match call2`` () =
     async {
-        let fsharp = 
-            "let a () = match None with | None -> 1 | Some (x: int) -> x"
+        let fsharp = "let a () = match None with | None -> 1 | Some (x: int) -> x"
         let! result = TextCompiler.toLower fsharp
 
         let expected =
@@ -251,8 +245,9 @@ let a () =
 [<Fact>]
 let ``Test match call3`` () =
     async {
-        let fsharp = 
+        let fsharp =
             "let a () = match Choice1Of3 () with Choice1Of3 _ -> 1 | Choice2Of3 _ -> 2 | Choice3Of3 _ -> 3"
+
         let! result = TextCompiler.toLower fsharp
 
         let expected =
@@ -272,8 +267,9 @@ let a () =
 [<Fact>]
 let ``Test match call3 when case`` () =
     async {
-        let fsharp = 
+        let fsharp =
             "let a () = match None with | None -> 1 | Some (x: int) when x > 1 -> x | Some x -> 2"
+
         let! result = TextCompiler.toLower fsharp
 
         let expected =
@@ -313,7 +309,7 @@ let a () =
 
 let e () =
     (fun (builder: TaskBuilder) ->
-        builder.Run(builder.Delay(fun () -> builder.Bind(Task.Delay(1), fun (_arg1: unit) -> builder.Zero()))))
+        builder.Run(builder.Delay(fun () -> builder.Bind(Task.Delay(1), (fun (_arg1: unit) -> builder.Zero())))))
         task
 
 
@@ -381,7 +377,7 @@ open System.Collections.Generic
 let ex (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay (fun () ->
+            builder.Delay(fun () ->
                 builder.Using(
                     s.GetAsyncEnumerator(CancellationToken.None),
                     fun (_arg1: IAsyncEnumerator<'a>) ->
@@ -396,7 +392,7 @@ let ex (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
 
                                 builder.While(
                                     (fun () -> hasMore),
-                                    builder.Delay (fun () ->
+                                    builder.Delay(fun () ->
                                         builder.Bind(
                                             (f) enumerator.Current :> Task<unit>,
                                             fun () ->
@@ -515,9 +511,10 @@ let e () =
     }
 
 [<Fact>]
-let ``Abcd``() = async {
-    let fsharp =
-        "\
+let ``Abcd`` () =
+    async {
+        let fsharp =
+            "\
 module A
 open CompExpr
 
@@ -526,8 +523,9 @@ let rec fib x = tramp {
     let! b = fib (x - 2)
     return a + b
 }"
-    let expected =
-        "\
+
+        let expected =
+            "\
 let fib (x: int) =
     (fun (builder: TrampolineBuilder) ->
         builder.Delay (fun () ->
@@ -545,7 +543,8 @@ let fib (x: int) =
             )))
         tramp
 "
-    let! result = TextCompiler.toLower fsharp
-    Assert.Equal(expected, result)
-    return ()
-}
+
+        let! result = TextCompiler.toLower fsharp
+        Assert.Equal(expected, result)
+        return ()
+    }

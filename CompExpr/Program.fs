@@ -38,16 +38,19 @@ let waitOnChanged (watcher: FileSystemWatcher) (t: CancellationToken) =
 
 let tryFindOpenStatements (loweredFile: string) (basefile: string) =
     //let s = loweredFile.IndexOf(Environment.NewLine)
-    let openingLetStmt =
-        loweredFile[0 .. (loweredFile.IndexOf("=") - 1)]
+    let openingLetStmt = loweredFile[0 .. (loweredFile.IndexOf("=") - 1)]
 
     basefile[0 .. (basefile.IndexOf(openingLetStmt) - 1)]
 
-let writeOutput targetFile (txt: string) = task {
-    use fs = FileInfo(targetFile).Open(FileMode.Truncate, FileAccess.Write, FileShare.ReadWrite)
-    use writer = new StreamWriter(fs)
-    do! writer.WriteAsync(txt)
-}
+let writeOutput targetFile (txt: string) =
+    task {
+        use fs =
+            FileInfo(targetFile)
+                .Open(FileMode.Truncate, FileAccess.Write, FileShare.ReadWrite)
+
+        use writer = new StreamWriter(fs)
+        do! writer.WriteAsync(txt)
+    }
 
 let writeDesugared (path) targetFile =
     task {
