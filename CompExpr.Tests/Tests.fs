@@ -17,7 +17,7 @@ type Code =
 let ``Test static creator method`` () =
     async {
         let! result = TextCompiler.toLower "System.Threading.Channels.Channel.CreateUnbounded<int>()"
-        let expected = $"let anon = Channel.CreateUnbounded<int>(){Environment.NewLine}"
+        let expected = $"Channel.CreateUnbounded<int>(){Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
@@ -66,9 +66,22 @@ let ``Test variable let`` () =
             @@>
 
         let fsharp = expr.Decompile()
-        let! result = TextCompiler.toLower fsharp
-        failwithf "result was:\n %s" result
-        let expected = $"let anon = let a = 1 in (){Environment.NewLine}"
+        let! result = TextCompiler.toLower """let a = 1 in ()"""
+        let expected = $"let a = 1 in (){Environment.NewLine}"
+        do Assert.Equal(expected, result)
+    }
+
+[<Fact>]
+let ``Test tupled method call`` () =
+    async {
+        let expr =
+            <@@
+                System.Threading.CancellationTokenSource.CreateLinkedTokenSource(System.Threading.CancellationToken.None, System.Threading.CancellationToken.None)
+            @@>
+
+        let fsharp = expr.Decompile()
+        let! result = TextCompiler.toLower "System.Threading.CancellationTokenSource.CreateLinkedTokenSource(System.Threading.CancellationToken.None, System.Threading.CancellationToken.None)"
+        let expected = $"let a = 1 in (){Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
@@ -77,10 +90,10 @@ let ``Test plus operator`` () =
     async {
         let fsharp =
             Code.toText(
-                1 + 2
+                1 + 2 + 3
             )
         let! result = TextCompiler.toLower fsharp
-        let expected = $"let anon = 1 + 2{Environment.NewLine}"
+        let expected = $"1 + 2 + 3{Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
@@ -91,7 +104,7 @@ let ``Test prefix operator`` () =
             Code.toText(~~~ 2)            
 
         let! result = TextCompiler.toLower fsharp
-        let expected = $"let anon = ~~~ 2{Environment.NewLine}"
+        let expected = $"~~~ 2{Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
@@ -102,7 +115,7 @@ let ``Test simple lambda`` () =
             Code.toText(fun () -> ())            
 
         let! result = TextCompiler.toLower fsharp
-        let expected = $"let anon = fun () -> (){Environment.NewLine}"
+        let expected = $"fun () -> (){Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
@@ -113,7 +126,7 @@ let ``Test simple lambda with typed argument`` () =
             Code.toText(fun (a: int) -> a)            
 
         let! result = TextCompiler.toLower fsharp
-        let expected = $"let patternInput a = a{Environment.NewLine}"
+        let expected = $"let patternInput1 a = a{Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
@@ -124,7 +137,7 @@ let ``Test simple lambda with two typed arguments`` () =
             Code.toText(fun (a: int) (b: int) -> a + b)
 
         let! result = TextCompiler.toLower fsharp
-        let expected = $"let anon = fun (x: int) -> fun (y: int) -> x + y{Environment.NewLine}"
+        let expected = $"fun (x: int) -> fun (y: int) -> x + y{Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
@@ -180,17 +193,16 @@ let ``Test calling a curried function`` () =
             Code.toText(List.map id [])            
 
         let! result = TextCompiler.toLower fsharp
-        let expected = $"let anon = Microsoft.FSharp.Collections.List.map fun (x: obj) -> id (x) List.Empty{Environment.NewLine}"
+        let expected = $"Microsoft.FSharp.Collections.List.map fun (x: obj) -> id (x) List.Empty{Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
 [<Fact>]
 let ``Test lambda end parens`` () =
     async {
-        let fsharp = "id (fun () -> ())"
+        let fsharp = "id (fun () -> ())\r\n"
         let! result = TextCompiler.toLower fsharp
-        let expected = $"let anon = id (fun () -> ()){Environment.NewLine}"
-        do Assert.Equal(expected, result)
+        do Assert.Equal(fsharp, result, ignoreLineEndingDifferences = true)
     }
 
 let t = new System.Threading.Tasks.ValueTask<_>(1)
@@ -238,7 +250,7 @@ let a () =
     let matchValue = Option.None in
 
     match matchValue with
-    | Some (Value) ->
+    | Some(Value) ->
         let x = Value
         x
     | _ -> 1
@@ -262,8 +274,8 @@ let a () =
     let matchValue = Choice.Choice1Of3() in
 
     match matchValue with
-    | Choice2Of3 (Item) -> 2
-    | Choice3Of3 (Item) -> 3
+    | Choice2Of3(Item) -> 2
+    | Choice3Of3(Item) -> 3
     | _ -> 1
 "
 
@@ -317,11 +329,37 @@ let e () =
         builder.Run(builder.Delay(fun () -> builder.Bind(Task.Delay(1), fun (_arg1: unit) -> builder.Zero()))))
         task
 
+[<Fact>]
+let ``Test task simple`` () =
+    async {
+        let fsharp =
+            """
+                task {
+                    return 1
+                }
+            """
+        let expr =
+             <@@
+                task {
+                    return 1
+                }
+            @@>
+
+        let sanity = expr.Decompile()
+
+        let expected =
+            "\
+    (fun (builder: TaskBuilder) -> builder.Run(builder.Delay(fun () -> builder.Return(1)))) task
+"
+        let! result = TextCompiler.toLower fsharp
+
+        do Assert.Equal(expected, result)
+    }
 
 [<Fact>]
 let ``Test task do delay`` () =
     async {
-        let fsharp = "let e () = task { do! System.Threading.Tasks.Task.Delay(1) }"
+        let fsharp = "task { return! System.Threading.Tasks.Task.Delay(1) }"
         let! result = TextCompiler.toLower fsharp
 
         let expected =

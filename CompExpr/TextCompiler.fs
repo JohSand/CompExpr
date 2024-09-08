@@ -13,8 +13,6 @@ open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Text
 
-
-
 let private checker = FSharpChecker.Create(keepAssemblyContents = true)
 
 // Based on https://queil.net/2021/06/embedding-fsharp-compiler-nuget-references/
@@ -91,36 +89,78 @@ open Fantomas.FCS.SyntaxTrivia
 open Fantomas.FCS.Text
 open Fantomas.FCS.Xml
 
-let private createLetDecl (bindingName: string) (args: list<list<FSharpMemberOrFunctionOrValue>>) (bindingBody: SynExpr) =
-    SynModuleDecl.Let(
-        false, 
-        [ bindingName.IdentPat(args |> List.collect id).SynBinding(bindingBody) ], 
-        range.Zero
-    )
+type CodeFragment =
+    | Anonymous of SynExpr
+    | NamedExpression of SynPat * SynExpr
 
-let private createAnonymousModule members =
+let private createAnonymousModule decls =
     SynModuleOrNamespace(
         longId = [ Ident("Tmp", range.Zero) ],
         isRecursive = false,
         kind = SynModuleOrNamespaceKind.AnonModule,
-        decls = 
-            [ for (name: string, args, body) in members -> 
-                SynModuleDecl.Expr(body, range.Zero)
-                // SynModuleDecl.Let(
-                //     false, 
-                //     [ name.IdentPat(args |> List.collect id).SynBinding(body) ], 
-                //     range.Zero
-                // )
-            ],
+        decls = decls,
         xmlDoc = PreXmlDoc.Empty,
         attribs = [],
         accessibility = None,
         range = range.Zero,
-        trivia = { SynModuleOrNamespaceTrivia.LeadingKeyword = SynModuleOrNamespaceLeadingKeyword.None }
+        trivia = {
+            SynModuleOrNamespaceTrivia.LeadingKeyword = SynModuleOrNamespaceLeadingKeyword.None
+        }
     )
 
-let private writeFormated members =
+let private createLetDecl
+    (args: SynPat)
+    (bindingBody: SynExpr)
+    =
+    SynModuleDecl.Let(
+        false,
+        [
+            SynBinding.SynBinding(
+                accessibility = None,
+                kind = SynBindingKind.Normal,
+                isInline = false,
+                isMutable = false,
+                attributes = [],
+                xmlDoc = PreXmlDoc.Empty,
+                valData =
+                    SynValData.SynValData(
+                        memberFlags = None,
+                        valInfo =
+                            SynValInfo.SynValInfo(
+                                curriedArgInfos = [ [] ],
+                                returnInfo = SynArgInfo.SynArgInfo(attributes = [], optional = false, ident = None)
+                            ),
+                        thisIdOpt = None
+                    ),
+                headPat = args
+                    ,
+                returnInfo = None,
+                expr = bindingBody,
+                range = range.Zero,
+                debugPoint = DebugPointAtBinding.NoneAtLet,
+                trivia = {
+                    LeadingKeyword = SynLeadingKeyword.Let(range.Zero)
+                    InlineKeyword = None
+                    EqualsRange = Some(range.Zero)
+                }
+
+            )
+        ],
+        range.Zero
+    )
+
+
+let private writeFormated (fragments: CodeFragment list) =
     async {
+        let decls = [
+            for fragment in fragments do
+                match fragment with
+                | Anonymous body -> SynModuleDecl.Expr(body, range.Zero)
+                | NamedExpression( args, body) -> createLetDecl args body
+        ]
+
+        let anonModule = createAnonymousModule decls
+
         let input =
             ParsedImplFileInput(
                 fileName = "tmp.fsx",
@@ -128,9 +168,12 @@ let private writeFormated members =
                 qualifiedNameOfFile = QualifiedNameOfFile(Ident("Tmp", range.Zero)),
                 scopedPragmas = [],
                 hashDirectives = [],
-                contents = [ createAnonymousModule members ],
+                contents = [ anonModule ],
                 flags = (true, true),
-                trivia =  { CodeComments = []; ConditionalDirectives = [] },
+                trivia = {
+                    CodeComments = []
+                    ConditionalDirectives = []
+                },
                 identifiers = Set.empty
             )
             //|> ParsedInput.ImplFile
@@ -138,22 +181,31 @@ let private writeFormated members =
             |> FCS.Syntax.ParsedInput.ImplFile
 
         //let! wat = CodeFormatter.IsValidASTAsync(input)
-        return! CodeFormatter.FormatASTAsync(input, "/tmp.fsx")
+        return! CodeFormatter.FormatASTAsync(input)
     }
 
-let rec private getUntypedParseTree =
-    function
+
+
+let rec private getUntypedParseTree decl = [
+    match decl with
     // Represents the declaration of a type
-    | FSharpImplementationFileDeclaration.Entity(entity, decls) -> [
+    | FSharpImplementationFileDeclaration.Entity(entity, decls) ->
         for decl in decls do
             yield! getUntypedParseTree decl
-        ]
+
     // Represents the declaration of a member, function or value, including the parameters and body of the member
-    | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value, args: list<list<_>>, body: FSharpExpr) ->
-        //let wat = toUntyped body
-        [ value.LogicalName, args,  body.ToUntyped() ]
-    // Represents the declaration of a static initialization action
-    | FSharpImplementationFileDeclaration.InitAction body -> [ "anon", [], body.ToUntyped() ]
+    | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value, args: list<list<FSharpMemberOrFunctionOrValue>>, body: FSharpExpr) ->
+        let  IdentPat =
+            value.CompiledName.IdentPat(args |> List.collect id)
+
+
+        yield (NamedExpression(IdentPat, body.ToUntyped()))
+
+    | FSharpImplementationFileDeclaration.InitAction body ->
+        // Represents the declaration of a static initialization action
+        //[ "anon", [], body.ToUntyped() ]
+        yield (Anonymous(body.ToUntyped()))
+]
 
 let toLower str =
     async {
