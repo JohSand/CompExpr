@@ -126,10 +126,10 @@ type SynPat with
             }
         )
 
-    member pat.GetSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
-        pat.GetSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
+    member pat.CreateSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
+        pat.CreateSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
 
-    member pat.GetSynMatchClause(result: SynExpr, ?whenExpr) =
+    member pat.CreateSynMatchClause(result: SynExpr, ?whenExpr) =
         SynMatchClause(
             pat = pat,
             whenExpr = whenExpr,
@@ -253,7 +253,8 @@ type ListExtensions =
 
     [<Extension>]
     static member Tuple(this: SynExpr list) =
-        SynExpr.Tuple(false, this, [], Range.Zero)
+        let commaRanges = [ for _ = 1 to this.Length - 1 do Range.Zero ]
+        SynExpr.Tuple(false, this, commaRanges, Range.Zero)
 
     [<Extension>]
     static member LambdaExpr(this: SynExpr, args: SynPat list) =
@@ -414,7 +415,7 @@ type FSharpExpr with
             SynExpr.LetOrUse(
                 false,
                 false,
-                bindings = [ a.Named().SynBinding(ex1.ToUntyped()) ],
+                bindings = [ a.Named().SynBinding(ex1.ToUntyped(), a.IsMutable) ],
                 body = ex2.ToUntyped(), //unit
                 range = r,
                 trivia = { InKeyword = inKeyword }
@@ -527,7 +528,7 @@ type FSharpExpr with
                 f.LongIdent().Apply(args)
 
         | DecisionTree(ifElse, nodes) ->
-            let clauses = ifElse.GetSynMatchClauses(nodes, 0)
+            let clauses = ifElse.GetSynMatchClauses(nodes)
 
             SynExpr.Match(
                 //  range.Zero,
@@ -540,34 +541,29 @@ type FSharpExpr with
             )
         | a -> "invalidArg".Apply("fsharpExpr").Apply(sprintf "%A." a)
 
-    member fsharpExpr.GetSynMatchClauses(result: (_ * FSharpExpr) list, depth: int) = [
+    member fsharpExpr.GetSynMatchClauses(result: (_ * FSharpExpr) list) = [
         match fsharpExpr with
-        | DecisionTreeSuccess(i, _) ->
-
-            SynPat.Wild(range.Zero).GetSynMatchClause(result[i])
-
+        | DecisionTreeSuccess(i, _xz) ->
+            yield SynPat.Wild(range.Zero).CreateSynMatchClause(result[i])
 
         | IfThenElse(UnionCaseTest(Value _, typ, case), thenExpr, Call(_)) ->
             //match clause?
-            case.LongIdent().GetSynMatchClause(thenExpr.ToUntyped())
+            yield case.CreateSynMatchClause(thenExpr.ToUntyped())
 
         | IfThenElse(UnionCaseTest(Value expr, typ, case), DecisionTreeSuccess(i, _), rest) ->
-            case.LongIdent().GetSynMatchClause(result[i])
+            yield case.CreateSynMatchClause(result[i])
 
-            yield! rest.GetSynMatchClauses(result, depth + 1)
+            yield! rest.GetSynMatchClauses(result)
 
-        | IfThenElse(UnionCaseTest(Value expr, typ, case),
-                     IfThenElse(ifExpr, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)),
-                     rest) ->
+        | IfThenElse(UnionCaseTest(Value expr, typ, case), IfThenElse(ifExpr, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)), rest) ->
             let letResult = ifExpr.LetOrUse(result[case1])
-            //test.GetSynMatchClause(letResult, ifExpr.ToUntyped())
-            case.LongIdent().GetSynMatchClause(letResult, ifExpr.ToUntyped())
+            yield case.CreateSynMatchClause(letResult, ifExpr.ToUntyped())
 
-            let (_, elseExpr) = result[case2]
-            yield! elseExpr.GetSynMatchClauses(result, depth + 1)
+            yield case.CreateSynMatchClause(ifExpr.LetOrUse(result[case2]))
 
-            yield! rest.GetSynMatchClauses(result, depth + 1)
-
+            yield! rest.GetSynMatchClauses(result)
+        | Const(_) as c ->
+            ()
         | _ -> failwith "unknown decision-tree option"
     ]
 
@@ -610,13 +606,20 @@ type FSharpUnionCase with
             []
         |> SynArgPats.Pats
 
-    member case.LongIdent() : SynPat =
+    member unionCase.LongIdent() : SynPat =
         SynPat.LongIdent(
-            longDotId = case.CompiledName.LongIdentWithDots(),
+            longDotId = unionCase.CompiledName.LongIdentWithDots(),
             //propertyKeyword = None,
             extraId = None,
             typarDecls = None,
-            argPats = case.GetPats(),
+            argPats = unionCase.GetPats(),
             accessibility = None,
             range = range.Zero
         )
+
+    member pat.CreateSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
+        pat.CreateSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
+
+    member pat.CreateSynMatchClause(result: SynExpr, ?whenExpr) =
+        let pattern = pat.LongIdent()
+        pattern.CreateSynMatchClause(result, ?whenExpr = whenExpr)

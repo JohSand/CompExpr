@@ -39,7 +39,7 @@ let a () = task {
 let a () =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay (fun () ->
+            builder.Delay(fun () ->
                 let chan = Channel.CreateUnbounded<int>() in
 
                 builder.Bind(
@@ -81,7 +81,7 @@ let ``Test tupled method call`` () =
 
         let fsharp = expr.Decompile()
         let! result = TextCompiler.toLower "System.Threading.CancellationTokenSource.CreateLinkedTokenSource(System.Threading.CancellationToken.None, System.Threading.CancellationToken.None)"
-        let expected = $"let a = 1 in (){Environment.NewLine}"
+        let expected = $"CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None, CancellationToken.None){Environment.NewLine}"
         do Assert.Equal(expected, result)
     }
 
@@ -286,23 +286,19 @@ let a () =
 let ``Test match call3 when case`` () =
     async {
         let fsharp = 
-            "let a () = match None with | None -> 1 | Some (x: int) when x > 1 -> x | Some x -> 2"
+            "match None with | None -> 1 | Some (x: int) when x > 1 -> x | Some x -> let _ = ignore x in 2"
         let! result = TextCompiler.toLower fsharp
 
         let expected =
             "\
-let a () =
     let matchValue = Option.None in
-
     match matchValue with
-    | Some (Value) when
+    | Some(Value) when
         let x = Value
         x > 1
         ->
         let x = Value in x
-    | Some (Value) ->
-        let x = Value
-        2
+    | Some(Value) -> 2
     | _ -> 1
 "
 
@@ -359,15 +355,14 @@ let ``Test task simple`` () =
 [<Fact>]
 let ``Test task do delay`` () =
     async {
-        let fsharp = "task { return! System.Threading.Tasks.Task.Delay(1) }"
+        let fsharp = "task { do! System.Threading.Tasks.Task.Delay(1) }"
         let! result = TextCompiler.toLower fsharp
 
         let expected =
             "\
-let e () =
     (fun (builder: TaskBuilder) ->
-        builder.Run(builder.Delay(fun () -> builder.Bind(Task.Delay(1), (fun () -> builder.Zero())))))
-        task
+    builder.Run(builder.Delay(fun () -> builder.Bind(Task.Delay(1), (fun () -> builder.Zero())))))
+    task
 "
 
         do Assert.Equal(expected, result)
@@ -395,7 +390,7 @@ let e (s: System.Threading.SemaphoreSlim) = task {
 let e (s: SemaphoreSlim) =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay (fun () ->
+            builder.Delay(fun () ->
                 builder.Using(
                     s,
                     fun (_arg1: SemaphoreSlim) ->
@@ -479,7 +474,7 @@ let e (s: System.Collections.Generic.IAsyncEnumerable<_>) f =
 let e (s: IAsyncEnumerable<'a>) f =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay (fun () ->
+            builder.Delay(fun () ->
                 builder.Using(
                     s.GetAsyncEnumerator(CancellationToken.None),
                     fun (_arg1: IAsyncEnumerator<'a>) ->
@@ -494,7 +489,7 @@ let e (s: IAsyncEnumerable<'a>) f =
 
                                 builder.While(
                                     (fun () -> hasMore),
-                                    builder.Delay (fun () ->
+                                    builder.Delay(fun () ->
                                         builder.Bind(
                                             f enumerator.Current :> Task<unit>,
                                             fun () ->
@@ -537,7 +532,7 @@ let e() =
 let e () =
     (fun (builder: TaskBuilder) ->
         builder.Run(
-            builder.Delay (fun () ->
+            builder.Delay(fun () ->
                 builder.TryWith(
                     builder.Delay(fun () -> builder.Bind(Task.Delay(1), (fun () -> builder.Zero()))),
                     fun (_arg2: exn) ->
@@ -569,7 +564,7 @@ let rec fib x = tramp {
         "\
 let fib (x: int) =
     (fun (builder: TrampolineBuilder) ->
-        builder.Delay (fun () ->
+        builder.Delay(fun () ->
             builder.Bind(
                 A.fib (x - 1),
                 fun (_arg1: int) ->
