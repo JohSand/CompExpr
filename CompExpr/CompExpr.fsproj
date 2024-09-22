@@ -1,19 +1,19 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-  </PropertyGroup>
-  <ItemGroup>
-    <Compile Include="MapperV2.fs" />
-    <None Include="TestMe.fsx" CopyToOutputDirectory="PreserveNewest" />
-    <Compile Include="Extensions.fs" />
-    <Compile Include="TextCompiler.fs" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Fantomas" Version="4.7.9" />
-    <PackageReference Include="FSharp.Compiler.Service" Version="41.0.3" />
-    <PackageReference Include="FSharp.Quotations.Evaluator" Version="2.1.0" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="6.0.3" />
-  </ItemGroup>
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+    </PropertyGroup>
+    <ItemGroup>
+        <Compile Include="MapperV2.fs" />
+        <None Include="TestMe.fsx" CopyToOutputDirectory="PreserveNewest" />
+        <Compile Include="Extensions.fs" />
+        <Compile Include="TextCompiler.fs" />
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Fantomas.Core" Version="7.0.1" />
+        <PackageReference Include="FSharp.Quotations.Evaluator" Version="2.1.0" />
+        <PackageReference Include="FSharp.Compiler.Service" Version="43.9.201" />
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Update="FSharp.Core" Version="8.0.101" />
+    </ItemGroup>
 </Project>

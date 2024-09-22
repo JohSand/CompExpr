@@ -10,7 +10,7 @@ indent_size = 2
 
 [*.{fs,fsx,fsi}]
 fsharp_multiline_bracket_style = stroustrup
-
+fsharp_newline_before_multiline_computation_expression = false
 # C# files
 [*.cs]
 

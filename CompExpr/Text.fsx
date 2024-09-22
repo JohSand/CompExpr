@@ -5,7 +5,7 @@
 
 open CompExpr.Program
 
-scenario {       
+scenario {
     start "" into x
     noop 1
     next (x)
