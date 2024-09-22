@@ -291,15 +291,19 @@ let ``Test match call3 when case`` () =
 
         let expected =
             "\
-    let matchValue = Option.None in
-    match matchValue with
-    | Some(Value) when
-        let x = Value
-        x > 1
-        ->
-        let x = Value in x
-    | Some(Value) -> 2
-    | _ -> 1
+let matchValue = Option.None in
+
+match matchValue with
+| Some(Value) when
+    let x = Value
+    x > 1
+    ->
+    let x = Value in x
+| Some(Value) ->
+    let x = Value in
+    ignore (x)
+    2
+| _ -> 1
 "
 
         do Assert.Equal(expected, result)

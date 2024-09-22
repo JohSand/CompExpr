@@ -375,7 +375,7 @@ type FSharpMemberOrFunctionOrValue with
 type FSharpExpr with
     member this.ToUntyped() : SynExpr =
         match this with
-        | Application(expr, types, args) ->
+        | Application(expr, _types, args) ->
             let app = expr.ToUntyped()
 
             if app.RequireParens() then
@@ -423,7 +423,7 @@ type FSharpExpr with
         | NewUnionCase(t, case, expr) -> [ t.TypeDefinition.DisplayName; case.CompiledName ].LongIdent().Apply(expr)
 
         | Value value -> value.LogicalName.IdentExpr()
-        | TupleGet(b, index, (Value value)) -> [ value.LogicalName; $"Item{(index + 1)}" ].LongIdent()
+        | TupleGet(_b, index, (Value value)) -> [ value.LogicalName; $"Item{(index + 1)}" ].LongIdent()
 
         | NewTuple(_, exprs) -> exprs.Tuple()
         | Coerce(fsType, fsExpr) -> SynExpr.Upcast(fsExpr.ToUntyped(), fsType.ToSynType(), Range.Zero)
@@ -489,9 +489,9 @@ type FSharpExpr with
             ]
 
             SynExpr.Record(None, None, records, range.Zero)
-        | UnionCaseGet(expr, typ, case, field) -> field.Name.IdentExpr()
+        | UnionCaseGet(_expr, _typ, _case, field) -> field.Name.IdentExpr()
 
-        | FSharpFieldGet(Some(Value caller), typ, field: FSharpField) -> [ caller.CompiledName; field.Name ].LongIdent()
+        | FSharpFieldGet(Some(Value caller), _typ, field: FSharpField) -> [ caller.CompiledName; field.Name ].LongIdent()
 
         | Call(Some(callingEntity), f, _, genericArgs, args) ->
             if List.isEmpty args && not f.IsPropertyGetterMethod then
@@ -521,7 +521,7 @@ type FSharpExpr with
             //with no args, we need generic args, since they can never be infered.
             f.LongIdent().WithTypeArgs(genericArgs).Apply()
         //basic calls
-        | Call(None, f, _, genericArgs, args) ->
+        | Call(None, f, _, _genericArgs, args) ->
             if f.IsPropertyGetterMethod then
                 f.LongIdent()
             else
@@ -546,23 +546,23 @@ type FSharpExpr with
         | DecisionTreeSuccess(i, _xz) ->
             yield SynPat.Wild(range.Zero).CreateSynMatchClause(result[i])
 
-        | IfThenElse(UnionCaseTest(Value _, typ, case), thenExpr, Call(_)) ->
+        | IfThenElse(UnionCaseTest(Value _, _typ, case), thenExpr, Call(_)) ->
             //match clause?
             yield case.CreateSynMatchClause(thenExpr.ToUntyped())
 
-        | IfThenElse(UnionCaseTest(Value expr, typ, case), DecisionTreeSuccess(i, _), rest) ->
+        | IfThenElse(UnionCaseTest(Value _expr, _typ, case), DecisionTreeSuccess(i, _), rest) ->
             yield case.CreateSynMatchClause(result[i])
 
             yield! rest.GetSynMatchClauses(result)
 
-        | IfThenElse(UnionCaseTest(Value expr, typ, case), IfThenElse(ifExpr, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)), rest) ->
+        | IfThenElse(UnionCaseTest(Value _expr, _typ, case), IfThenElse(ifExpr, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)), rest) ->
             let letResult = ifExpr.LetOrUse(result[case1])
             yield case.CreateSynMatchClause(letResult, ifExpr.ToUntyped())
 
             yield case.CreateSynMatchClause(ifExpr.LetOrUse(result[case2]))
 
             yield! rest.GetSynMatchClauses(result)
-        | Const(_) as c ->
+        | Const(_) as _c ->
             ()
         | _ -> failwith "unknown decision-tree option"
     ]
@@ -585,7 +585,7 @@ type FSharpExpr with
 
     member fsharpExpr.GetCaseName() : string =
         match fsharpExpr with
-        | Let((_, UnionCaseGet(expr, typ, case, field), _), _) -> field.Name
+        | Let((_, UnionCaseGet(_expr, _typ, _case, field), _), _) -> field.Name
         | _ -> "failed to get name of binding"
 
     member fsharpExpr.GetBoundName() : string =

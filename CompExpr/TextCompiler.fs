@@ -89,6 +89,7 @@ open Fantomas.FCS.SyntaxTrivia
 open Fantomas.FCS.Text
 open Fantomas.FCS.Xml
 
+[<NoComparison; NoEquality>]
 type CodeFragment =
     | Anonymous of SynExpr
     | NamedExpression of SynPat * SynExpr
@@ -189,7 +190,7 @@ let private writeFormated (fragments: CodeFragment list) =
 let rec private getUntypedParseTree decl = [
     match decl with
     // Represents the declaration of a type
-    | FSharpImplementationFileDeclaration.Entity(entity, decls) ->
+    | FSharpImplementationFileDeclaration.Entity(_entity, decls) ->
         for decl in decls do
             yield! getUntypedParseTree decl
 

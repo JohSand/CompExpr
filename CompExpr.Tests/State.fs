@@ -4,7 +4,7 @@ open System.Threading.Tasks
 open FSharp.Control
 
 
-
+[<NoComparison; NoEquality>]
 type State<'T> = State of (unit -> System.Threading.Tasks.Task<unit * 'T>)
 
 module State =
