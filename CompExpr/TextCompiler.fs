@@ -4,7 +4,7 @@
 open CompExpr.MapperV2
 open System
 open System.IO
-open Fantomas
+
 open FSharp.Compiler
 open FSharp.Compiler.Syntax
 open FSharp.Compiler.SyntaxTrivia
@@ -16,127 +16,203 @@ open FSharp.Compiler.Text
 let private checker = FSharpChecker.Create(keepAssemblyContents = true)
 
 // Based on https://queil.net/2021/06/embedding-fsharp-compiler-nuget-references/
-let private resolveNugets input =
-    async {
-        match! checker.GetProjectOptionsFromScript($"%s{Path.GetTempFileName()}.fsx", SourceText.ofString input) with
-        | projOptions, [] ->
-            let! projResults = checker.ParseAndCheckProject(projOptions)
+let private resolveNugets input = task {
+    match! checker.GetProjectOptionsFromScript($"%s{Path.GetTempFileName()}.fsx", SourceText.ofString input) with
+    | projOptions, [] ->
+        let! projResults = checker.ParseAndCheckProject(projOptions)
 
-            return
-                match projResults.HasCriticalErrors with
-                | false ->
-                    projResults.DependencyFiles
-                    |> Seq.choose (function
-                        | path when path.EndsWith(".dll") -> Some path
-                        | _ -> None)
-                    |> Seq.groupBy id
-                    |> Seq.map (fun (path, _) -> path)
-                | _ -> failwith ""
-        | _ -> return Seq.empty
-    }
+        return
+            match projResults.HasCriticalErrors with
+            | false ->
+                projResults.DependencyFiles
+                |> Seq.choose (function
+                    | path when path.EndsWith(".dll") -> Some path
+                    | _ -> None)
+                |> Seq.groupBy id
+                |> Seq.map (fun (path, _) -> path)
+            | true ->
+                let errs = projResults.Diagnostics |> Array.map (_.Message)
+                let msg = String.Join(Environment.NewLine, value = errs)
+                failwith ("Failed to parse and  check project:" + msg)
+    | projOptions, diags ->
 
-let private getTypedParseTree (input) : Async<_> =
-    async {
+        let errs = diags |> List.map (_.Message) |> List.toArray
+        let msg = String.Join(Environment.NewLine, value = errs)
+        failwith ("Failed to resolve project options:" + msg)
+        return Seq.empty
+}
 
-        let! nugets = resolveNugets input
+let private getTypedParseTree (input) = task {
 
-        let tmpName = Path.GetTempFileName()
-        let script = Path.ChangeExtension(tmpName, ".fsx")
+    let! nugets = resolveNugets input
 
-        let projectOptions =
-            checker.GetProjectOptionsFromCommandLineArgs(
-                Path.ChangeExtension(tmpName, ".fsproj"),
-                [|
-                    "--out:" + Path.ChangeExtension(tmpName, ".dll")
-                    "--flaterrors"
-                    "--targetprofile:netstandard"
-                    script
-                    for path in nugets do
-                        $"-r:{path}"
+    let tmpName = Path.GetTempFileName()
+    let script = Path.ChangeExtension(tmpName, ".fsx")
 
-                    for fi in DirectoryInfo(Directory.GetCurrentDirectory()).GetFiles("*.dll") do
-                        $"-r:%s{fi.Name}"
-                    //yield $"--compilertool:%s{currentDir.FullName}"
-                    "--debug:full"
-                    "--target:exe"
-                |]
-            )
+    let projectOptions =
+        checker.GetProjectOptionsFromCommandLineArgs(
+            Path.ChangeExtension(tmpName, ".fsproj"),
+            [|
+                "--out:" + Path.ChangeExtension(tmpName, ".dll")
+                "--flaterrors"
+                "--targetprofile:netstandard"
+                script
+                for path in nugets do
+                    $"-r:{path}"
 
-        let! results, typedRes =
-            checker.ParseAndCheckFileInProject(script, 0, Text.SourceText.ofString input, projectOptions)
+                for fi in DirectoryInfo(Directory.GetCurrentDirectory()).GetFiles("*.dll") do
+                    $"-r:%s{fi.Name}"
+                //yield $"--compilertool:%s{currentDir.FullName}"
+                "--debug:full"
+                "--target:exe"
+            |]
+        )
 
-        match typedRes with
-        | FSharpCheckFileAnswer.Aborted ->
-            if results.Diagnostics.Length > 0 then
-                let diag = System.String.Join(System.Environment.NewLine, results.Diagnostics)
+    let! results, typedRes =
+        checker.ParseAndCheckFileInProject(script, 0, Text.SourceText.ofString input, projectOptions)
 
-                return Error diag
-            else
-                return Error("Aborted")
-        | FSharpCheckFileAnswer.Succeeded res ->
-            for d in res.Diagnostics do
-                printfn $"%s{d.Message}"
+    match typedRes with
+    | FSharpCheckFileAnswer.Aborted ->
+        if results.Diagnostics.Length > 0 then
+            let diag = System.String.Join(System.Environment.NewLine, results.Diagnostics)
 
-            match res.ImplementationFile with
-            | None -> return Error $"%A{res.Diagnostics}"
-            | Some fc -> return Ok(fc.Declarations)
-    }
+            return Error diag
+        else
+            return Error("Aborted")
+    | FSharpCheckFileAnswer.Succeeded res ->
+        for d in res.Diagnostics do
+            printfn $"%s{d.Message}"
 
-let private createLetDecl
-    (bindingName: string)
-    (args: list<list<FSharpMemberOrFunctionOrValue>>)
-    (bindingBody: SynExpr)
-    =
-    SynModuleDecl.Let(false, [ bindingName.IdentPat(args |> List.collect id).SynBinding(bindingBody) ], Text.range ())
+        match res.ImplementationFile with
+        | None -> return Error $"%A{res.Diagnostics}"
+        | Some fc -> return Ok(fc.Declarations)
+}
 
-let private createAnonymousModule members =
+open Fantomas
+open Fantomas.Core
+open Fantomas.FCS.Syntax
+open Fantomas.FCS.SyntaxTrivia
+open Fantomas.FCS.Text
+open Fantomas.FCS.Xml
+
+[<NoComparison; NoEquality>]
+type CodeFragment =
+    | Anonymous of SynExpr
+    | NamedExpression of SynPat * SynExpr
+
+let private createAnonymousModule decls =
     SynModuleOrNamespace(
-        longId = [ Ident("Tmp", Text.range ()) ],
+        longId = [ Ident("Tmp", range.Zero) ],
         isRecursive = false,
         kind = SynModuleOrNamespaceKind.AnonModule,
-        decls = [ for (name, args, body) in members -> createLetDecl name args body ],
+        decls = decls,
         xmlDoc = PreXmlDoc.Empty,
         attribs = [],
         accessibility = None,
-        range = Text.range ()
+        range = range.Zero,
+        trivia = {
+            SynModuleOrNamespaceTrivia.LeadingKeyword = SynModuleOrNamespaceLeadingKeyword.None
+        }
     )
 
-let private writeFormated members =
-    async {
-        let input =
-            ParsedImplFileInput(
-                "tmp.fsx",
-                true,
-                QualifiedNameOfFile(Ident("Tmp", Text.range ())),
-                scopedPragmas = [],
-                hashDirectives = [],
-                modules = [ createAnonymousModule members ],
-                isLastCompiland = (true, true)
+let private createLetDecl (args: SynPat) (bindingBody: SynExpr) =
+    SynModuleDecl.Let(
+        false,
+        [
+            SynBinding.SynBinding(
+                accessibility = None,
+                kind = SynBindingKind.Normal,
+                isInline = false,
+                isMutable = false,
+                attributes = [],
+                xmlDoc = PreXmlDoc.Empty,
+                valData =
+                    SynValData.SynValData(
+                        memberFlags = None,
+                        valInfo =
+                            SynValInfo.SynValInfo(
+                                curriedArgInfos = [ [] ],
+                                returnInfo = SynArgInfo.SynArgInfo(attributes = [], optional = false, ident = None)
+                            ),
+                        thisIdOpt = None
+                    ),
+                headPat = args,
+                returnInfo = None,
+                expr = bindingBody,
+                range = range.Zero,
+                debugPoint = DebugPointAtBinding.NoneAtLet,
+                trivia = {
+                    LeadingKeyword = SynLeadingKeyword.Let(range.Zero)
+                    InlineKeyword = None
+                    EqualsRange = Some(range.Zero)
+                }
+
             )
-            |> ParsedInput.ImplFile
+        ],
+        range.Zero
+    )
 
-        let! wat = CodeFormatter.IsValidASTAsync(input)
-        return! CodeFormatter.FormatASTAsync(input, "/tmp.fsx", [], None, Fantomas.FormatConfig.FormatConfig.Default)
-    }
 
-let rec private getUntypedParseTree =
-    function
+let private writeFormated (fragments: CodeFragment list) = async {
+    let decls = [
+        for fragment in fragments do
+            match fragment with
+            | Anonymous body -> SynModuleDecl.Expr(body, range.Zero)
+            | NamedExpression(args, body) -> createLetDecl args body
+    ]
+
+    let anonModule = createAnonymousModule decls
+
+    let input =
+        ParsedImplFileInput(
+            fileName = "tmp.fsx",
+            isScript = true,
+            qualifiedNameOfFile = QualifiedNameOfFile(Ident("Tmp", range.Zero)),
+            scopedPragmas = [],
+            hashDirectives = [],
+            contents = [ anonModule ],
+            flags = (true, true),
+            trivia = {
+                CodeComments = []
+                ConditionalDirectives = []
+            },
+            identifiers = Set.empty
+        )
+        //|> ParsedInput.ImplFile
+        // Unchecked.defaultof<ParsedImplFileInput>
+        |> FCS.Syntax.ParsedInput.ImplFile
+
+    //let! wat = CodeFormatter.IsValidASTAsync(input)
+    return! CodeFormatter.FormatASTAsync(input)
+}
+
+
+
+let rec private getUntypedParseTree decl = [
+    match decl with
     // Represents the declaration of a type
-    | FSharpImplementationFileDeclaration.Entity(entity, decls) -> [
+    | FSharpImplementationFileDeclaration.Entity(_entity, decls) ->
         for decl in decls do
             yield! getUntypedParseTree decl
-      ]
-    // Represents the declaration of a member, function or value, including the parameters and body of the member
-    | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value, args: list<list<_>>, body: FSharpExpr) ->
-        //let wat = toUntyped body
-        [ value.LogicalName, args, body.ToUntyped() ]
-    // Represents the declaration of a static initialization action
-    | FSharpImplementationFileDeclaration.InitAction body -> [ "anon", [], body.ToUntyped() ]
 
-let toLower str =
-    async {
-        match! getTypedParseTree str with
-        | Ok([ decls ]) -> return! decls |> getUntypedParseTree |> writeFormated
-        | Error s -> return failwithf $"%s{s}"
-        | _ -> return failwith ""
-    }
+    // Represents the declaration of a member, function or value, including the parameters and body of the member
+    | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value,
+                                                                  args: list<list<FSharpMemberOrFunctionOrValue>>,
+                                                                  body: FSharpExpr) ->
+        let IdentPat = value.CompiledName.IdentPat(args |> List.collect id)
+
+
+        yield (NamedExpression(IdentPat, body.ToUntyped()))
+
+    | FSharpImplementationFileDeclaration.InitAction body ->
+        // Represents the declaration of a static initialization action
+        //[ "anon", [], body.ToUntyped() ]
+        yield (Anonymous(body.ToUntyped()))
+]
+
+let toLower str = task {
+    match! getTypedParseTree str with
+    | Ok([ decls ]) -> return! decls |> getUntypedParseTree |> writeFormated
+    | Error s -> return failwithf $"%s{s}"
+    | Ok(l) -> return failwithf "%A" l
+}

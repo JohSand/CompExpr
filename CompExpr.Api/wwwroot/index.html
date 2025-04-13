@@ -1,0 +1,93 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basic computation expression lowerer</title>
+    <style>
+        #editor, #response-editor {
+            width: 1400px;
+            height: 300px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Basic computation expression lowerer</h1>
+    <div id="editor"></div>
+    <button id="submit-button">Submit Content</button>
+    <div id="response-editor"></div>
+
+    <!-- Monaco Editor Loader Script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs/loader.min.js"></script>
+    <script>
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            // Get initial content from URL fragment
+            function getContentFromUrl() {
+                let code = decodeURIComponent(window.location.hash.slice(1));
+                return atob(code) || [
+                    '#r "nuget: IcedTasks, 0.5.4"',
+                    'open System.Threading.Tasks',
+                    'open IcedTasks',
+                    '',
+                    'let coldTask_dont_start_immediately() =',
+                    '    task {',
+                    '        let mutable someValue = 0',
+                    '        let fooColdTask = coldTask { someValue <- 42 }',
+                    '        // ColdTasks will not execute until they are called, similar to how Async works',
+                    '        // Calling fooColdTask will start t',
+                    '        do! fooColdTask()',
+                    '    }'
+                ].join('\n');
+            }
+
+            var editor = monaco.editor.create(document.getElementById('editor'), {
+                value: getContentFromUrl(),
+                language: 'fsharp'
+            });
+
+            var responseEditor = monaco.editor.create(document.getElementById('response-editor'), {
+                value: 'Response will be displayed here...',
+                language: 'fsharp',
+                readOnly: true
+            });
+
+            // Update URL fragment when editor content changes
+            editor.onDidChangeModelContent(function() {
+                let code = encodeURIComponent(btoa(editor.getValue()));
+                window.location.hash = code;
+            });
+
+            // Listen for hashchange event to update editor content
+            window.addEventListener('hashchange', function() {
+                var newValue = getContentFromUrl();
+                if (newValue !== editor.getValue()) {
+                    editor.setValue(newValue);
+                }
+            });
+
+            // Submit button event listener
+            document.getElementById('submit-button').addEventListener('click', function() {
+                var content = editor.getValue();
+                fetch('/lowered', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content: content })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    //responseEditor.setValue(JSON.stringify(data, null, 2));
+                    responseEditor.setValue(data.data);
+                })
+                .catch((error) => {
+                    responseEditor.setValue('Error: ' + error);
+                });
+            });
+        });
+    </script>
+</body>
+</html>

@@ -4,31 +4,69 @@ open FSharp.Compiler
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Symbols.FSharpExprPatterns
-open FSharp.Compiler.Syntax
-open FSharp.Compiler.SyntaxTrivia
-open FSharp.Compiler.Text
+// open FSharp.Compiler.Syntax
+// open FSharp.Compiler.SyntaxTrivia
+// open FSharp.Compiler.Text
+
+open Fantomas.FCS.Syntax
+open Fantomas.FCS.SyntaxTrivia
+open Fantomas.FCS.Text
+
 open System.Runtime.CompilerServices
 
 open System
-open FSharp.Compiler.Xml
+open Fantomas.FCS.Xml
 open System.Collections.Generic
 
+let mkRange (r: Text.Range) =
+    Range.mkRange r.FileName (Position.mkPos r.StartLine (r.StartColumn)) (Position.mkPos r.EndLine (r.EndColumn))
+
+let mkRange2 a b c d =
+    Range.mkRange "garb.fsx" (Position.mkPos a b) (Position.mkPos c d)
+
+type SynExprMatchTrivia with
+    static member Empty: SynExprMatchTrivia = {
+        SynExprMatchTrivia.WithKeyword = range.Zero
+        SynExprMatchTrivia.MatchKeyword = range.Zero
+    }
+// type SynExprSequentialTrivia with
+//     static member Empty : SynExprSequentialTrivia =
+//         { SynExprSequentialTrivia.SeparatorRange = None;
+//          }
+
+type SynBindingReturnInfoTrivia with
+    static member Empty: SynBindingReturnInfoTrivia = {
+        SynBindingReturnInfoTrivia.ColonRange = None
+    }
+
+
 type String with
-    member this.Named() =
-        SynPat.Named(this.Replace("@", "").Ident(), false, None, Range.Zero)
+    member this.Named() : SynPat =
+        SynPat.Named(this.Replace("@", "").SynIdent(), false, None, Range.Zero)
 
     member this.Typed(typ: SynType) = this.Named().TypedPat(typ)
 
     member this.Typed(typ: FSharpType) = this.Named().TypedPat(typ.ToSynType())
 
-    member this.Ident() =
+    member this.Ident() : Ident =
         Ident(this.Replace("@", ""), Range.Zero)
 
+    member this.SynIdent() : SynIdent = SynIdent(this.Ident(), None)
+
+
     member this.LongIdentWithDots() =
-        let typeName =
+        let typeName: LongIdent =
             this.Replace("`1", "").Split(".") |> Array.map (_.Ident()) |> List.ofArray
 
-        LongIdentWithDots(typeName, [])
+        if typeName.Length = 1 then
+            SynLongIdent(typeName, [], [])
+        else
+            let dotRanges = [
+                for _ = 1 to typeName.Length - 1 do
+                    yield Range.Zero
+            ]
+
+            SynLongIdent(typeName, dotRanges, [])
 
     member this.LongIdent() =
         SynType.LongIdent(this.LongIdentWithDots())
@@ -52,8 +90,8 @@ type String with
                 this.LongIdentWithDots(),
                 None,
                 None,
-                None,
-                SynArgPats.Pats(args |> List.map (_.getArgs())),
+                // None,
+                SynArgPats.Pats(args |> List.map (_.GetArgs())),
                 None,
                 Range.Zero
             )
@@ -63,9 +101,11 @@ type String with
         SynExpr.LongIdent(false, this.LongIdentWithDots(), None, Range.Zero)
 
 type SynPat with
-    member this.TypedPat(typ) = SynPat.Typed(this, typ, Range.Zero)
+    member this.TypedPat(typ) = SynPat.Typed(this, typ, range.Zero)
 
-    member headPat.SynBinding(expr, ?isMutable) =
+    //todo this is sus
+    member headPat.SynBinding(expr: SynExpr, ?isMutable) =
+        //failwithf "%A" expr
         SynBinding(
             None,
             SynBindingKind.Normal,
@@ -75,20 +115,21 @@ type SynPat with
             PreXmlDoc.Empty,
             valData = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None),
             headPat = headPat,
-            returnInfo = Some(SynBindingReturnInfo(SynType.Anon(range.Zero), range.Zero, [])),
+            returnInfo = None,
             expr = expr,
             range = range.Zero,
-            debugPoint = DebugPointAtBinding.Yes(Text.range ()),
+            debugPoint = DebugPointAtBinding.NoneAtInvisible,
             trivia = {
-                LetKeyword = Some(range.Zero)
+                LeadingKeyword = SynLeadingKeyword.Let(range.Zero)
+                InlineKeyword = None
                 EqualsRange = Some(range.Zero)
             }
         )
 
-    member pat.GetSynMatchClause(result: FSharpExpr, ?whenExpr) =
-        pat.GetSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
+    member pat.CreateSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
+        pat.CreateSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
 
-    member pat.GetSynMatchClause(result: SynExpr, ?whenExpr) =
+    member pat.CreateSynMatchClause(result: SynExpr, ?whenExpr) =
         SynMatchClause(
             pat = pat,
             whenExpr = whenExpr,
@@ -122,8 +163,17 @@ type SynExpr with
             range = range.Zero
         )
 
-    member this.ApplyInfix(args: SynExpr) =
-        SynExpr.App(flag = ExprAtomicFlag.Atomic, isInfix = true, funcExpr = this, argExpr = args, range = range.Zero)
+    member this.ApplyInfix(ar: SynExpr) =
+        SynExpr.App(flag = ExprAtomicFlag.NonAtomic, isInfix = true, funcExpr = this, argExpr = ar, range = range.Zero)
+
+    member this.ApplyInfix(args: SynExpr list) =
+        match args with
+        | [] -> this
+        | [ x ] -> x.Apply(this)
+        | x :: xs ->
+            SynExpr
+                .App(flag = ExprAtomicFlag.NonAtomic, isInfix = true, funcExpr = this, argExpr = x, range = range.Zero)
+                .ApplyInfix(xs)
 
     member this.Apply(args: string) = this.Apply(args.Const())
 
@@ -177,9 +227,16 @@ type SynExpr with
         let i = name.Ident()
 
         match this with
-        | SynExpr.LongIdent(_, LongIdentWithDots(ids, _), _, _) ->
-            SynExpr.LongIdent(false, LongIdentWithDots(ids @ [ i ], []), None, Range.Zero)
-        | SynExpr.Ident ident -> SynExpr.LongIdent(false, LongIdentWithDots([ ident; i ], []), None, Range.Zero)
+        | SynExpr.LongIdent(_, SynLongIdent(ids, _, _), _, _) ->
+            let dotRanges = [
+                for _ = 1 to ids.Length do
+                    Range.Zero
+            ]
+
+            SynExpr.LongIdent(false, SynLongIdent(ids @ [ i ], dotRanges, []), None, Range.Zero)
+
+        | SynExpr.Ident ident ->
+            SynExpr.LongIdent(false, SynLongIdent([ ident; i ], [ Range.Zero ], []), None, Range.Zero)
         | _ ->
             let idents = [ "Failed"; "To"; "Build"; "Ident" ].LongIdentWithDots()
             SynExpr.LongIdent(false, idents, None, Range.Zero)
@@ -193,7 +250,7 @@ type String with
 type ListExtensions =
     [<Extension>]
     static member LongIdentWithDots(args: string list) =
-        LongIdentWithDots(args |> List.map (_.Replace("@", "").Ident()), [ Range.Zero ])
+        SynLongIdent(args |> List.map (_.Replace("@", "").Ident()), [ Range.Zero ], [])
 
     [<Extension>]
     static member LongIdent(this: string list) =
@@ -201,14 +258,19 @@ type ListExtensions =
 
     [<Extension>]
     static member Tuple(this: SynExpr list) =
-        SynExpr.Tuple(false, this, [], Range.Zero)
+        let commaRanges = [
+            for _ = 1 to this.Length - 1 do
+                Range.Zero
+        ]
+
+        SynExpr.Tuple(false, this, commaRanges, Range.Zero)
 
     [<Extension>]
     static member LambdaExpr(this: SynExpr, args: SynPat list) =
         SynExpr.Lambda(
             fromMethod = false,
             inLambdaSeq = false,
-            args = SynSimplePats.SimplePats([], Range.Zero), //dunno about this
+            args = SynSimplePats.SimplePats([], [], range.Zero), //dunno about this
             //arrow = Some (range.Zero),
             body = this,
             parsedData = Some(args, this),
@@ -258,7 +320,7 @@ type SynType with
     member this.New(exprs: FSharpExpr list) =
         let argsToCtor =
             if List.isEmpty exprs then
-                SynExpr.Const(SynConst.Unit, Text.range.Zero)
+                SynExpr.Const(SynConst.Unit, range.Zero)
             else
                 exprs.Tuple().WrapInParens()
 
@@ -268,7 +330,7 @@ type FSharpType with
     member fullType.Tuple() =
         SynType.Tuple(
             fullType.IsStructTupleType,
-            [ for _ in fullType.GenericArguments -> false, SynType.Anon(Range.Zero) ],
+            [ for _ in fullType.GenericArguments -> SynTupleTypeSegment.Slash(range.Zero) ],
             Range.Zero
         )
 
@@ -285,9 +347,9 @@ type FSharpType with
 
 type FSharpMemberOrFunctionOrValue with
     member this.Named() =
-        SynPat.Named(this.LogicalName.Ident(), this.IsMemberThisValue, None, Range.Zero)
+        SynPat.Named(this.LogicalName.SynIdent(), this.IsMemberThisValue, None, Range.Zero)
 
-    member this.getArgs() =
+    member this.GetArgs() =
         if
             this.FullType.HasTypeDefinition
             && this.FullType.TypeDefinition.DisplayName = "unit"
@@ -300,8 +362,8 @@ type FSharpMemberOrFunctionOrValue with
         else
             this.LogicalName.Named()
 
-    member value.createBinding body =
-        value.Named().SynBinding(body, value.IsMutable)
+    // member value.createBinding body =
+    //     value.Named().SynBinding2(body, value.IsMutable)
 
 
     member f.LongIdent() =
@@ -322,75 +384,83 @@ type FSharpMemberOrFunctionOrValue with
 type FSharpExpr with
     member this.ToUntyped() : SynExpr =
         match this with
-        | Application(expr, types, args) ->
+        | Application(expr, _types, args) ->
             let app = expr.ToUntyped()
 
             if app.RequireParens() then
                 app.WrapInParens().Apply(args.Tuple())
             else
                 app.Apply(args.Tuple())
-        | Lambda(args, expr) -> expr.ToUntyped().LambdaExpr(args.getArgs ())
-        | Const(c, _) ->
-            match c with
-            | :? unit -> SynExpr.Const(SynConst.Unit, Range.Zero)
-            | :? bool as b -> SynExpr.Const(SynConst.Bool b, Range.Zero)
-            | :? sbyte as b -> SynExpr.Const(SynConst.SByte b, Range.Zero)
-            | :? byte as b -> SynExpr.Const(SynConst.Byte b, Range.Zero)
-            | :? int16 as i -> SynExpr.Const(SynConst.Int16 i, Range.Zero)
-            | :? int32 as i -> SynExpr.Const(SynConst.Int32 i, Range.Zero)
-            | :? int64 as i -> SynExpr.Const(SynConst.Int64 i, Range.Zero)
-            | :? uint64 as i -> SynExpr.Const(SynConst.UInt64 i, Range.Zero)
+        | Lambda(args, expr) -> expr.ToUntyped().LambdaExpr(args.GetArgs())
+        | Const(c, _a) ->
+            let con =
+                match c with
+                | :? unit -> SynConst.Unit
+                | :? bool as b -> SynConst.Bool b
+                | :? sbyte as b -> SynConst.SByte b
+                | :? byte as b -> SynConst.Byte b
+                | :? int16 as i -> SynConst.Int16 i
+                | :? int32 as i -> SynConst.Int32 i
+                | :? int64 as i -> SynConst.Int64 i
+                | :? uint64 as i -> SynConst.UInt64 i
+                | :? string as s -> SynConst.String(s, SynStringKind.Regular, Range.Zero)
+                | :? single as b -> SynConst.Single b
+                | :? double as b -> SynConst.Double b
+                | :? char as b -> SynConst.Char b
+                | :? Decimal as b -> SynConst.Decimal b
+                | :? (byte array) as arr -> SynConst.Bytes(arr, SynByteStringKind.Regular, Range.Zero)
+                | _ -> failwith ""
 
-            | :? string as s -> s.Const()
+            SynExpr.Const(con, Range.Zero)
 
-            | :? single as b -> SynExpr.Const(SynConst.Single b, Range.Zero)
-            | :? double as b -> SynExpr.Const(SynConst.Double b, Range.Zero)
-            | :? char as b -> SynExpr.Const(SynConst.Char b, Range.Zero)
-            | :? Decimal as b -> SynExpr.Const(SynConst.Decimal b, Range.Zero)
-
-            | _ -> failwith ""
-
-        | Let((a, ex1, dbg: DebugPointAtBinding), ex2) ->
+        | Let((a, ex1, dbg: Syntax.DebugPointAtBinding), ex2) ->
             let inKeyword =
                 match dbg with
-                | DebugPointAtBinding.Yes a -> Some a
+                | Syntax.DebugPointAtBinding.Yes(r) -> mkRange r |> Some
                 | _ -> None
+
+            let r = Option.defaultValue range.Zero inKeyword
 
             SynExpr.LetOrUse(
                 false,
                 false,
-                bindings = [ a.createBinding (ex1.ToUntyped()) ],
-                body = ex2.ToUntyped(),
-                range = Option.defaultValue Range.Zero inKeyword,
+                bindings = [ a.Named().SynBinding(ex1.ToUntyped(), a.IsMutable) ],
+                body = ex2.ToUntyped(), //unit
+                range = r,
                 trivia = { InKeyword = inKeyword }
             )
         | NewUnionCase(t, case, expr) -> [ t.TypeDefinition.DisplayName; case.CompiledName ].LongIdent().Apply(expr)
 
         | Value value -> value.LogicalName.IdentExpr()
-        | TupleGet(b, index, (Value value)) -> [ value.LogicalName; $"Item{(index + 1)}" ].LongIdent()
+        | TupleGet(_b, index, (Value value)) -> [ value.LogicalName; $"Item{(index + 1)}" ].LongIdent()
 
         | NewTuple(_, exprs) -> exprs.Tuple()
         | Coerce(fsType, fsExpr) -> SynExpr.Upcast(fsExpr.ToUntyped(), fsType.ToSynType(), Range.Zero)
 
         | TypeLambda(_, expr) ->
             let bod = expr.ToUntyped()
-            SynExpr.LetOrUse(false, false, [], bod, Text.range.Zero, { InKeyword = Some Range.Zero })
+            SynExpr.LetOrUse(false, false, [], bod, range.Zero, { InKeyword = Some Range.Zero })
 
         | Sequential(ex1, ex2) ->
             let dbg = DebugPointAtSequential.SuppressBoth
             let e1 = ex1.ToUntyped()
             let e2 = ex2.ToUntyped()
-            SynExpr.Sequential(dbg, false, e1, e2, Range.Zero)
+            SynExpr.Sequential(dbg, false, e1, e2, Range.Zero, SynExprSequentialTrivia.Zero)
 
         | ValueSet(value, expr) ->
-            SynExpr.LongIdentSet(value.LogicalName.LongIdentWithDots(), expr.ToUntyped(), Text.Range.Zero)
+            SynExpr.LongIdentSet(value.LogicalName.LongIdentWithDots(), expr.ToUntyped(), range.Zero)
         | DefaultValue expr ->
             if expr.TypeDefinition.IsValueType then
                 expr.TypeDefinition.FullName.LongIdent().TypeArgs(expr.GenericArguments).New([])
             else
                 SynExpr.Null(Range.Zero)
 
-        | NewObject(f, types, exprs) -> f.ApparentEnclosingEntity.FullName.LongIdent().TypeArgs(types).New(exprs)
+        | NewObject(f, types, exprs) ->
+            let ident = f.ApparentEnclosingEntity.FullName.LongIdent()
+            let typeArgs = ident.TypeArgs(types)
+            let dbug = typeArgs.New(exprs)
+
+            dbug
 
         | IfThenElse(ifExpr, thenExpr, elseExpr) ->
             let debugPoint = DebugPointAtBinding.NoneAtInvisible
@@ -428,9 +498,10 @@ type FSharpExpr with
             ]
 
             SynExpr.Record(None, None, records, range.Zero)
-        | UnionCaseGet(expr, typ, case, field) -> field.Name.IdentExpr()
+        | UnionCaseGet(_expr, _typ, _case, field) -> field.Name.IdentExpr()
 
-        | FSharpFieldGet(Some(Value caller), typ, field: FSharpField) -> [ caller.CompiledName; field.Name ].LongIdent()
+        | FSharpFieldGet(Some(Value caller), _typ, field: FSharpField) ->
+            [ caller.CompiledName; field.Name ].LongIdent()
 
         | Call(Some(callingEntity), f, _, genericArgs, args) ->
             if List.isEmpty args && not f.IsPropertyGetterMethod then
@@ -440,10 +511,12 @@ type FSharpExpr with
                 callingEntity.ToUntyped().AppendIdent(f).Apply(args)
 
         //operators
-        | Call(None, f, _, _, args) when f.CompiledName.StartsWith("op_") ->
-            args
-            |> List.map (_.ToUntyped())
-            |> List.fold (_.ApplyInfix) (f.CompiledName.LongIdentExpr())
+        | Call(None, f: FSharpMemberOrFunctionOrValue, _, _, args) when f.CompiledName.StartsWith("op_") ->
+            let funcExpr = f.DisplayName.Replace("(", "").Replace(")", "").LongIdentExpr()
+
+            match args with
+            | [ a ] -> funcExpr.ApplyInfix(a.ToUntyped())
+            | args -> funcExpr.ApplyInfix(args |> List.map (_.ToUntyped()) |> List.rev)
 
         //fsharp function calls
         | Call(None, f, _, _, args) when f.CurriedParameterGroups.Count > 1 ->
@@ -455,54 +528,53 @@ type FSharpExpr with
             //with no args, we need generic args, since they can never be infered.
             f.LongIdent().WithTypeArgs(genericArgs).Apply()
         //basic calls
-        | Call(None, f, _, genericArgs, args) ->
+        | Call(None, f, _, _genericArgs, args) ->
             if f.IsPropertyGetterMethod then
                 f.LongIdent()
             else
                 f.LongIdent().Apply(args)
 
         | DecisionTree(ifElse, nodes) ->
-            let clauses = ifElse.GetSynMatchClauses(nodes |> List.map snd)
+            let clauses = ifElse.GetSynMatchClauses(nodes)
 
             SynExpr.Match(
-                range.Zero,
+                //  range.Zero,
                 DebugPointAtBinding.NoneAtInvisible,
                 SynExpr.Ident(Ident(ifElse.GetMatchName(), range.Zero)),
-                range.Zero,
                 clauses,
-                range.Zero
+                range.Zero,
+                SynExprMatchTrivia.Empty
+
             )
         | a -> "invalidArg".Apply("fsharpExpr").Apply(sprintf "%A." a)
 
-    member fsharpExpr.GetSynMatchClauses(result: FSharpExpr list) = [
+    member fsharpExpr.GetSynMatchClauses(result: (_ * FSharpExpr) list) = [
         match fsharpExpr with
-        | DecisionTreeSuccess(i, _) ->
-            //base case
-            yield SynPat.Wild(range.Zero).GetSynMatchClause(result[i])
+        | DecisionTreeSuccess(i, _xz) -> yield SynPat.Wild(range.Zero).CreateSynMatchClause(result[i])
 
-        | IfThenElse(UnionCaseTest(Value expr, typ, case), DecisionTreeSuccess(i, _), rest) ->
-            yield case.LongIdent().GetSynMatchClause(result[i])
-
-            yield! rest.GetSynMatchClauses(result)
-
-        | IfThenElse(UnionCaseTest(Value _, typ, case), thenExpr, Call(_)) ->
+        | IfThenElse(UnionCaseTest(Value _, _typ, case), thenExpr, Call(_)) ->
             //match clause?
-            yield case.LongIdent().GetSynMatchClause(thenExpr.ToUntyped())
+            yield case.CreateSynMatchClause(thenExpr.ToUntyped())
 
-
-        | IfThenElse(UnionCaseTest(Value _, _, case), IfThenElse(ifExpr, DecisionTreeSuccess(i, _), DecisionTreeSuccess(j, _)), rest) ->
-            //match with guard
-            //first yield the guarded case
-            yield case.LongIdent().GetSynMatchClause(ifExpr.LetOrUse(result[i]), ifExpr.ToUntyped())
-            //then a union case without guard, for the else case
-            yield! result[j].GetSynMatchClauses(result)
+        | IfThenElse(UnionCaseTest(Value _expr, _typ, case), DecisionTreeSuccess(i, _), rest) ->
+            yield case.CreateSynMatchClause(result[i])
 
             yield! rest.GetSynMatchClauses(result)
 
+        | IfThenElse(UnionCaseTest(Value _expr, _typ, case),
+                     IfThenElse(ifExpr, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)),
+                     rest) ->
+            let letResult = ifExpr.LetOrUse(result[case1])
+            yield case.CreateSynMatchClause(letResult, ifExpr.ToUntyped())
+
+            yield case.CreateSynMatchClause(ifExpr.LetOrUse(result[case2]))
+
+            yield! rest.GetSynMatchClauses(result)
+        | Const(_) as _c -> ()
         | _ -> failwith "unknown decision-tree option"
     ]
 
-    member ifExpr.LetOrUse(thenExpr: FSharpExpr) : SynExpr =
+    member ifExpr.LetOrUse((_, thenExpr): _ * FSharpExpr) : SynExpr =
         SynExpr.LetOrUse(
             false,
             false,
@@ -520,7 +592,7 @@ type FSharpExpr with
 
     member fsharpExpr.GetCaseName() : string =
         match fsharpExpr with
-        | Let((_, UnionCaseGet(expr, typ, case, field), _), _) -> field.Name
+        | Let((_, UnionCaseGet(_expr, _typ, _case, field), _), _) -> field.Name
         | _ -> "failed to get name of binding"
 
     member fsharpExpr.GetBoundName() : string =
@@ -532,19 +604,29 @@ type FSharpUnionCase with
     member this.GetPats() =
         if this.HasFields then
             [
-                SynPat.Paren(SynPat.Tuple(false, [ for f in this.Fields -> f.Name.Named() ], Range.Zero), range.Zero)
+                SynPat.Paren(
+                    SynPat.Tuple(false, [ for f in this.Fields -> f.Name.Named() ], [], range.Zero),
+                    range.Zero
+                )
             ]
         else
             []
         |> SynArgPats.Pats
 
-    member case.LongIdent() : SynPat =
+    member unionCase.LongIdent() : SynPat =
         SynPat.LongIdent(
-            longDotId = case.CompiledName.LongIdentWithDots(),
-            propertyKeyword = None,
+            longDotId = unionCase.CompiledName.LongIdentWithDots(),
+            //propertyKeyword = None,
             extraId = None,
             typarDecls = None,
-            argPats = case.GetPats(),
+            argPats = unionCase.GetPats(),
             accessibility = None,
             range = range.Zero
         )
+
+    member pat.CreateSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
+        pat.CreateSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
+
+    member pat.CreateSynMatchClause(result: SynExpr, ?whenExpr) =
+        let pattern = pat.LongIdent()
+        pattern.CreateSynMatchClause(result, ?whenExpr = whenExpr)

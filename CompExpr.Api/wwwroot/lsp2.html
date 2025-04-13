@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monaco Editor with Ionide LSP Integration</title>
+    <style>
+        #editor, #response-editor {
+            width: 800px;
+            height: 300px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Monaco Editor with Ionide LSP Integration</h1>
+    <div id="editor"></div>
+    <button id="submit-button">Submit Content</button>
+    <div id="response-editor"></div>
+
+    <!-- Monaco Editor and LSP Integration Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs/loader.min.js"></script>
+    <script src="https://unpkg.com/monaco-languageclient@0.13.0/lib/umd/monaco-languageclient.js"></script>
+    <script src="https://unpkg.com/vscode-ws-jsonrpc@0.2.0/lib/umd/index.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs/editor/editor.main.nls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs/editor/editor.main.js"></script>
+    
+    <script>
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+            // Get initial content from URL fragment
+            function getContentFromUrl() {
+                return decodeURIComponent(window.location.hash.slice(1)) || [
+                    'module MyModule',
+                    '',
+                    'let x = 42',
+                    '',
+                    'let f a b =',
+                    '    a + b',
+                ].join('\n');
+            }
+
+            var editor = monaco.editor.create(document.getElementById('editor'), {
+                value: getContentFromUrl(),
+                language: 'fsharp'
+            });
+
+            var responseEditor = monaco.editor.create(document.getElementById('response-editor'), {
+                value: 'Response will be displayed here...',
+                language: 'json',
+                readOnly: true
+            });
+
+            // Update URL fragment when editor content changes
+            editor.onDidChangeModelContent(function () {
+                window.location.hash = encodeURIComponent(editor.getValue());
+            });
+
+            // Listen for hashchange event to update editor content
+            window.addEventListener('hashchange', function () {
+                var newValue = getContentFromUrl();
+                if (newValue !== editor.getValue()) {
+                    editor.setValue(newValue);
+                }
+            });
+
+            // Submit button event listener
+            document.getElementById('submit-button').addEventListener('click', function () {
+                var content = editor.getValue();
+                fetch('/lowered', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content: content })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        responseEditor.setValue(JSON.stringify(data, null, 2));
+                    })
+                    .catch((error) => {
+                        responseEditor.setValue('Error: ' + error);
+                    });
+            });
+
+            // LSP setup
+            const MonacoLanguageClient = monaco_languageclient.MonacoLanguageClient;
+            const CloseAction = monaco_languageclient.CloseAction;
+            const ErrorAction = monaco_languageclient.ErrorAction;
+            const MessageTransports = monaco_languageclient.MessageTransports;
+            const listen = vscode_ws_jsonrpc.listen;
+            const toSocket = vscode_ws_jsonrpc.toSocket;
+            const WebSocketMessageReader = vscode_ws_jsonrpc.WebSocketMessageReader;
+            const WebSocketMessageWriter = vscode_ws_jsonrpc.WebSocketMessageWriter;
+
+            // Create the web socket
+            const url = createUrl('/sampleServer');
+            const webSocket = new WebSocket(url);
+            listen({
+                webSocket,
+                onConnection: connection => {
+                    const languageClient = createLanguageClient(connection);
+                    const disposable = languageClient.start();
+                    connection.onClose(() => disposable.dispose());
+                }
+            });
+
+            function createUrl(path) {
+                const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+                return `${protocol}://${window.location.host}${path}`;
+            }
+
+            function createLanguageClient(connection) {
+                return new MonacoLanguageClient({
+                    name: "F# Language Client",
+                    clientOptions: {
+                        // Use a language id as a document selector
+                        documentSelector: ['fsharp'],
+                        // Disable the default error handler
+                        errorHandler: {
+                            error: () => ErrorAction.Continue,
+                            closed: () => CloseAction.DoNotRestart
+                        }
+                    },
+                    connectionProvider: {
+                        get: (errorHandler, closeHandler) => {
+                            return Promise.resolve(MessageTransports.create(connection, errorHandler, closeHandler));
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

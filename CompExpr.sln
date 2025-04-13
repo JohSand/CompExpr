@@ -10,8 +10,13 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{20257538-4FA0-480B-857B-F7D8DE16366E}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
+		Directory.Build.props = Directory.Build.props
 		global.json = global.json
 	EndProjectSection
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "CompExpr.Tool", "CompExpr.Tool\CompExpr.Tool.fsproj", "{5CF07A8B-9296-4FD7-B97E-ABC11601DCFD}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "CompExpr.Api", "CompExpr.Api\CompExpr.Api.fsproj", "{799A85B6-549F-4A08-85B6-2B5EB4BA341F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,6 +32,14 @@ Global
 		{DDA2E8A3-4798-48F0-8D40-F4FE25AA36CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DDA2E8A3-4798-48F0-8D40-F4FE25AA36CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DDA2E8A3-4798-48F0-8D40-F4FE25AA36CF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5CF07A8B-9296-4FD7-B97E-ABC11601DCFD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5CF07A8B-9296-4FD7-B97E-ABC11601DCFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5CF07A8B-9296-4FD7-B97E-ABC11601DCFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5CF07A8B-9296-4FD7-B97E-ABC11601DCFD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{799A85B6-549F-4A08-85B6-2B5EB4BA341F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{799A85B6-549F-4A08-85B6-2B5EB4BA341F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{799A85B6-549F-4A08-85B6-2B5EB4BA341F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{799A85B6-549F-4A08-85B6-2B5EB4BA341F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

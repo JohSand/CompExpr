@@ -1,0 +1,15 @@
+<Project>
+    <PropertyGroup>
+        <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+        <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
+        <WarnOn>3390;$(WarnOn)</WarnOn>
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+        <RestoreLockedMode>true</RestoreLockedMode>
+        <NoWarn>NU1603</NoWarn>
+        <UseArtifactsOutput>true</UseArtifactsOutput>
+        <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
+        <RestoreUseStaticGraphEvaluation>true</RestoreUseStaticGraphEvaluation>
+        <ServerGarbageCollection>true</ServerGarbageCollection>
+        <OtherFlags>$(OtherFlags) --test:GraphBasedChecking --test:ParallelOptimization --test:ParallelIlxGen --strict-indentation+</OtherFlags>
+    </PropertyGroup>
+</Project>

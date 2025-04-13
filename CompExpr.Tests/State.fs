@@ -4,7 +4,7 @@ open System.Threading.Tasks
 open FSharp.Control
 
 
-
+[<NoComparison; NoEquality>]
 type State<'T> = State of (unit -> System.Threading.Tasks.Task<unit * 'T>)
 
 module State =
@@ -16,11 +16,10 @@ module State =
     let ret v = State(fun s -> Task.FromResult(s, v))
 
     let bind (f: 'a -> State<'b>) ((State s): State<'a>) : State<'b> =
-        State(fun ss ->
-            task {
-                let! (next, a) = s ss
-                return! let (State b) = f a in b next
-            })
+        State(fun ss -> task {
+            let! (next, a) = s ss
+            return! let (State b) = f a in b next
+        })
 
     let map (f: 'a -> 'b) (s: State<'a>) : State<'b> = bind (f >> ret) s
 
@@ -50,14 +49,13 @@ type ScenarioStateBuilder() =
     member _.TryWith(body: _ -> State<'a>, handler) : State<'a> =
         let ((State s): State<'a>) = body ()
 
-        State(fun ss ->
-            task {
-                try
-                    return! s ss
-                with e ->
-                    //let! cont = handler e
-                    return! let (State cont) = (handler e) in cont ss
-            })
+        State(fun ss -> task {
+            try
+                return! s ss
+            with e ->
+                //let! cont = handler e
+                return! let (State cont) = (handler e) in cont ss
+        })
 
 
 module StateExtensions =
