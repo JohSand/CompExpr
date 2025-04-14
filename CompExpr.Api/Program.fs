@@ -1,10 +1,15 @@
 namespace CompExpr.Api
 
+open System.Net
+
+
 #nowarn "20"
 
 open Microsoft.AspNetCore.Http.Json
 open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.HttpOverrides
 open Microsoft.Extensions.Hosting
+open Microsoft.Extensions.DependencyInjection
 
 module Program =
     open Microsoft.AspNetCore.Http
@@ -25,6 +30,15 @@ module Program =
             Console.WriteLine(exn.Message)
 
         let builder = WebApplication.CreateBuilder(args)
+
+        builder.Services.Configure(fun (options: ForwardedHeadersOptions) ->
+            options.ForwardedHeaders <-
+                ForwardedHeaders.XForwardedFor
+                ||| ForwardedHeaders.XForwardedProto
+                ||| ForwardedHeaders.XForwardedHost
+
+            options.KnownProxies.Add(IPAddress.Parse("127.0.0.1")))
+
         let app = builder.Build()
 
         app
