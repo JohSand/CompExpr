@@ -327,20 +327,27 @@ type SynType with
         this.New(argsToCtor)
 
 module List =
-    let intersperse element (list: 'a list) = 
+    let intersperse element (list: 'a list) =
         match list with
         | [] -> []
-        | x::xs -> [
+        | x :: xs -> [
             yield x
             for x in xs do
                 yield element
-                yield x        
-        ]
+                yield x
+          ]
 
 type FSharpType with
     member fullType.Tuple() =
-        let types = [ for t in fullType.GenericArguments -> SynTupleTypeSegment.Type(t.ToSynType()) ]
-        SynType.Tuple(fullType.IsStructTupleType,  types |> List.intersperse (SynTupleTypeSegment.Star(Range.Zero)), Range.Zero)
+        let types = [
+            for t in fullType.GenericArguments -> SynTupleTypeSegment.Type(t.ToSynType())
+        ]
+
+        SynType.Tuple(
+            fullType.IsStructTupleType,
+            types |> List.intersperse (SynTupleTypeSegment.Star(Range.Zero)),
+            Range.Zero
+        )
 
     member fsType.ToSynType() : SynType =
         if fsType.IsGenericParameter then
@@ -441,26 +448,30 @@ type FSharpExpr with
         | NewUnionCase(t, case, expr) -> [ t.TypeDefinition.DisplayName; case.CompiledName ].LongIdent().Apply(expr)
 
         | Value value -> value.LogicalName.IdentExpr()
-        | TupleGet(t, index, (Value value)) -> 
+        | TupleGet(t, index, (Value value)) ->
             //tupledArg.Item1 is technically correct, but does not work in fsharp
             //so we rewrite it as a destructured let-binding instead. ugly, but seems to work.
             let totalLength = t.GenericArguments.Count - 1
-            let tuple = 
-                SynPat.Tuple(
-                    false, 
-                    [for i in 0..totalLength -> if i = index then "value".IdentPat([]) else SynPat.Wild(Range.Zero) ], 
-                    [for _ in 0..totalLength - 1 -> Range.Zero], 
-                    Range.Zero
-                )
+
+            let elementPats = [
+                for i in 0..totalLength ->
+                    if i = index then
+                        "value".IdentPat([])
+                    else
+                        SynPat.Wild(Range.Zero)
+            ]
+
+            let tuple =
+                SynPat.Tuple(false, elementPats, [ for _ in 0 .. totalLength - 1 -> Range.Zero ], Range.Zero)
+
             SynExpr.LetOrUse(
-                isRecursive = false, 
-                isUse = false, 
-                bindings = [ SynPat.Paren(tuple, Range.Zero).SynBinding(value.LogicalName.IdentExpr()) ], 
-                body = "value".IdentExpr(), 
-                range = range.Zero, 
+                isRecursive = false,
+                isUse = false,
+                bindings = [ SynPat.Paren(tuple, Range.Zero).SynBinding(value.LogicalName.IdentExpr()) ],
+                body = "value".IdentExpr(),
+                range = range.Zero,
                 trivia = { InKeyword = Some Range.Zero }
             )
-
 
         | NewTuple(_, exprs) -> exprs.Tuple()
         | Coerce(fsType, fsExpr) -> SynExpr.Upcast(fsExpr.ToUntyped(), fsType.ToSynType(), Range.Zero)

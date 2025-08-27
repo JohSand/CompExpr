@@ -29,6 +29,12 @@ let private resolveNugets input = task {
                     | path when path.EndsWith(".dll") -> Some path
                     | _ -> None)
                 |> Seq.groupBy id
+                |> Seq.map (fun (path, _) -> path),
+                projResults.DependencyFiles
+                |> Seq.choose (function
+                    | path when path.EndsWith(".fsx") -> Some path
+                    | _ -> None)
+                |> Seq.groupBy id
                 |> Seq.map (fun (path, _) -> path)
             | true ->
                 let errs = projResults.Diagnostics |> Array.map (_.Message)
@@ -39,13 +45,12 @@ let private resolveNugets input = task {
         let errs = diags |> List.map (_.Message) |> List.toArray
         let msg = String.Join(Environment.NewLine, value = errs)
         failwith ("Failed to resolve project options:" + msg)
-        return Seq.empty
+        return (Seq.empty, Seq.empty)
 }
 
 let private getTypedParseTree (input) = task {
 
-    let! nugets = resolveNugets input
-
+    let! (nugets, loadedScripts) = resolveNugets input
     let tmpName = Path.GetTempFileName()
     let script = Path.ChangeExtension(tmpName, ".fsx")
 
@@ -53,6 +58,9 @@ let private getTypedParseTree (input) = task {
         checker.GetProjectOptionsFromCommandLineArgs(
             Path.ChangeExtension(tmpName, ".fsproj"),
             [|
+                "-a"
+                for path in loadedScripts do
+                    $"{path}"
                 "--out:" + Path.ChangeExtension(tmpName, ".dll")
                 "--flaterrors"
                 "--targetprofile:netstandard"
