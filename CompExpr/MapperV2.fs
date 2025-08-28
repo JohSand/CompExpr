@@ -56,7 +56,18 @@ type String with
 
     member this.LongIdentWithDots() =
         let typeName: LongIdent =
-            this.Replace("`1", "").Split(".") |> Array.map (_.Ident()) |> List.ofArray
+            this
+                //todo solve nicer
+                .Replace("`1", "")
+                .Replace("`2", "")
+                .Replace("`3", "")
+                .Replace("`4", "")
+                .Replace("`5", "")
+                .Replace("`6", "")
+                .Replace("`7", "")
+                .Split(".")
+            |> Array.map (_.Ident())
+            |> List.ofArray
 
         if typeName.Length = 1 then
             SynLongIdent(typeName, [], [])
@@ -355,8 +366,14 @@ type FSharpType with
         elif fsType.HasTypeDefinition then
             fsType.TypeDefinition.DisplayName.LongIdent().TypeArgs(fsType.GenericArguments)
         elif (fsType.IsTupleType) then
-            //todo
             fsType.Tuple()
+        elif (fsType.IsFunctionType) then
+            SynType.Fun(
+                fsType.GenericArguments[0].ToSynType(),
+                fsType.GenericArguments[1].ToSynType(), //does currying solve this?
+                Range.Zero,
+                trivia = { ArrowRange = Range.Zero }
+            )
         else
             "todo".LongIdent()
 
