@@ -4,9 +4,6 @@ open FSharp.Compiler
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Symbols.FSharpExprPatterns
-// open FSharp.Compiler.Syntax
-// open FSharp.Compiler.SyntaxTrivia
-// open FSharp.Compiler.Text
 
 open Fantomas.FCS.Syntax
 open Fantomas.FCS.SyntaxTrivia
@@ -18,11 +15,40 @@ open System
 open Fantomas.FCS.Xml
 open System.Collections.Generic
 
+let (|Equality|_|) (expr: FSharpMemberOrFunctionOrValue) =
+    if expr.CompiledName = "op_Equality" then
+        Some ()
+    else
+        None
+
+let test (a: obj) =
+    ignore a
+
 let mkRange (r: Text.Range) =
     Range.mkRange r.FileName (Position.mkPos r.StartLine (r.StartColumn)) (Position.mkPos r.EndLine (r.EndColumn))
 
 let mkRange2 a b c d =
     Range.mkRange "garb.fsx" (Position.mkPos a b) (Position.mkPos c d)
+
+
+type System.Object with
+    member this.ToSynConst() =
+        match this with
+        | :? unit -> SynConst.Unit
+        | :? bool as b -> SynConst.Bool b
+        | :? sbyte as b -> SynConst.SByte b
+        | :? byte as b -> SynConst.Byte b
+        | :? int16 as i -> SynConst.Int16 i
+        | :? int32 as i -> SynConst.Int32 i
+        | :? int64 as i -> SynConst.Int64 i
+        | :? uint64 as i -> SynConst.UInt64 i
+        | :? string as s -> SynConst.String(s, SynStringKind.Regular, Range.Zero)
+        | :? single as b -> SynConst.Single b
+        | :? double as b -> SynConst.Double b
+        | :? char as b -> SynConst.Char b
+        | :? Decimal as b -> SynConst.Decimal b
+        | :? (byte array) as arr -> SynConst.Bytes(arr, SynByteStringKind.Regular, Range.Zero)
+        | _ -> failwith ""
 
 type SynExprMatchTrivia with
     static member Empty: SynExprMatchTrivia = {
@@ -394,18 +420,16 @@ type FSharpMemberOrFunctionOrValue with
         else
             this.LogicalName.Named()
 
-    // member value.createBinding body =
-    //     value.Named().SynBinding2(body, value.IsMutable)
-
-
     member f.LongIdent() =
         if f.ApparentEnclosingEntity.IsFSharpModule then
             //static call, no args
-            if f.ApparentEnclosingEntity.HasAttribute<AutoOpenAttribute>() then
-                //caller.ApparentEnclosingEntity
+            if 
+                f.ApparentEnclosingEntity.HasAttribute<AutoOpenAttribute>() 
+                || f.ApparentEnclosingEntity.AllCompilationPaths.IsEmpty
+            then
                 f.LogicalName.LongIdentExpr()
             else
-                [ f.ApparentEnclosingEntity.CompiledName; f.LogicalName ].LongIdent()
+                [ f.ApparentEnclosingEntity.DisplayName; f.LogicalName ].LongIdent()
         else if f.IsPropertyGetterMethod then
             [ f.ApparentEnclosingEntity.CompiledName; f.CompiledName.Replace("get_", "") ]
                 .LongIdent()
@@ -425,25 +449,7 @@ type FSharpExpr with
                 app.Apply(args.Tuple())
         | Lambda(args, expr) -> expr.ToUntyped().LambdaExpr(args.GetArgs())
         | Const(c, _a) ->
-            let con =
-                match c with
-                | :? unit -> SynConst.Unit
-                | :? bool as b -> SynConst.Bool b
-                | :? sbyte as b -> SynConst.SByte b
-                | :? byte as b -> SynConst.Byte b
-                | :? int16 as i -> SynConst.Int16 i
-                | :? int32 as i -> SynConst.Int32 i
-                | :? int64 as i -> SynConst.Int64 i
-                | :? uint64 as i -> SynConst.UInt64 i
-                | :? string as s -> SynConst.String(s, SynStringKind.Regular, Range.Zero)
-                | :? single as b -> SynConst.Single b
-                | :? double as b -> SynConst.Double b
-                | :? char as b -> SynConst.Char b
-                | :? Decimal as b -> SynConst.Decimal b
-                | :? (byte array) as arr -> SynConst.Bytes(arr, SynByteStringKind.Regular, Range.Zero)
-                | _ -> failwith ""
-
-            SynExpr.Const(con, Range.Zero)
+            SynExpr.Const(c.ToSynConst(), Range.Zero)
 
         | Let((letBoundName, ex1, dbg: Syntax.DebugPointAtBinding), ex2) ->
             let inKeyword =
@@ -468,6 +474,9 @@ type FSharpExpr with
         | TupleGet(t, index, (Value value)) ->
             //tupledArg.Item1 is technically correct, but does not work in fsharp
             //so we rewrite it as a destructured let-binding instead. ugly, but seems to work.
+
+            //in theory, we could destructure it earlier, but it requires forward parsing due to
+            //name resolution, so leave as is for now.
             let totalLength = t.GenericArguments.Count - 1
 
             let elementPats = [
@@ -627,7 +636,12 @@ type FSharpExpr with
 
             yield! rest.GetSynMatchClauses(result)
         | Const(_) as _c -> ()
-        | _ -> failwith "unknown decision-tree option"
+        //compile as matches against cont values
+        | IfThenElse(Call(None, Equality, [], _l2 , [ Value(_value); Const(value, typ) ]), DecisionTreeSuccess(i, _), rest) ->
+            yield SynPat.Const(value.ToSynConst(), Range.Zero).CreateSynMatchClause(result[i])
+            yield! rest.GetSynMatchClauses(result)
+
+        | a -> failwithf "unknown decision-tree option %A" a
     ]
 
     member ifExpr.LetOrUse((_, thenExpr): _ * FSharpExpr) : SynExpr =
@@ -643,6 +657,7 @@ type FSharpExpr with
 
     member fsharpExpr.GetMatchName() : string =
         match fsharpExpr with
+        | IfThenElse(Call(None, Equality, [], _ , [ Value(expr); Const(_, _) ]), DecisionTreeSuccess(_, _), _)
         | IfThenElse(UnionCaseTest(Value expr, _, _), _, _) -> expr.CompiledName
         | _ -> "failed to resolve name"
 

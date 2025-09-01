@@ -98,3 +98,24 @@ type TrampolineBuilder() =
 [<AutoOpen>]
 module TrampolineBuilder =
     let tramp = TrampolineBuilder()
+
+    let rec fib a = tramp {
+        match a with
+        | 0 -> return 0
+        | 1 -> return 1
+        | a ->
+            let! x = fib (a - 1)
+            let! y = fib (a - 2)
+            return x + y
+    
+    }
+
+module Usage =
+    type TrampolineBuilder with
+        member _.Run(this: Trampoline<_>) = this.Eval()
+
+
+    let test () =
+        fib 2
+
+

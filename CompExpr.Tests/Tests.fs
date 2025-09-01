@@ -546,16 +546,16 @@ let rec fib x = tramp {
 
     let expected =
         "\
-let fib (x: int) =
+let rec fib (x: int) =
     (fun (builder: TrampolineBuilder) ->
         builder.Delay(fun () ->
             builder.Bind(
-                A.fib (x - 1),
+                fib (x - 1),
                 fun (_arg1: int) ->
                     let a = _arg1
 
                     builder.Bind(
-                        A.fib (x - 2),
+                        fib (x - 2),
                         fun (_arg2: int) ->
                             let b = _arg2
                             builder.Return(a + b)

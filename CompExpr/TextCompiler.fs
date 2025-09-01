@@ -32,7 +32,7 @@ let private resolveNugets input = task {
                 |> Seq.map (fun (path, _) -> path),
                 projResults.DependencyFiles
                 |> Seq.choose (function
-                    | path when path.EndsWith(".fsx") -> Some path
+                    | path when path.EndsWith(".fsx") && (not (path.Contains("Local\Temp"))) -> Some path
                     | _ -> None)
                 |> Seq.groupBy id
                 |> Seq.map (fun (path, _) -> path)
@@ -106,7 +106,7 @@ open Fantomas.FCS.Xml
 [<NoComparison; NoEquality>]
 type CodeFragment =
     | Anonymous of SynExpr
-    | NamedExpression of SynPat * SynExpr
+    | NamedExpression of SynPat * SynExpr * bool * FSharp.Compiler.Text.range
 
 let private createAnonymousModule decls =
     SynModuleOrNamespace(
@@ -123,9 +123,9 @@ let private createAnonymousModule decls =
         }
     )
 
-let private createLetDecl (args: SynPat) (bindingBody: SynExpr) =
+let private createLetDecl (args: SynPat) (bindingBody: SynExpr) isRec =
     SynModuleDecl.Let(
-        false,
+        isRec,
         [
             SynBinding.SynBinding(
                 accessibility = None,
@@ -150,7 +150,11 @@ let private createLetDecl (args: SynPat) (bindingBody: SynExpr) =
                 range = range.Zero,
                 debugPoint = DebugPointAtBinding.NoneAtLet,
                 trivia = {
-                    LeadingKeyword = SynLeadingKeyword.Let(range.Zero)
+                    LeadingKeyword =
+                        if isRec then
+                            SynLeadingKeyword.LetRec(range.Zero, range.Zero)
+                        else
+                            SynLeadingKeyword.Let(Range.Zero)
                     InlineKeyword = None
                     EqualsRange = Some(range.Zero)
                 }
@@ -161,12 +165,12 @@ let private createLetDecl (args: SynPat) (bindingBody: SynExpr) =
     )
 
 
-let private writeFormated (fragments: CodeFragment list) = async {
+let private writeFormated (fragments: CodeFragment list) = task {
     let decls = [
         for fragment in fragments do
             match fragment with
             | Anonymous body -> SynModuleDecl.Expr(body, range.Zero)
-            | NamedExpression(args, body) -> createLetDecl args body
+            | NamedExpression(args, body, isRec, _) -> createLetDecl args body isRec
     ]
 
     let anonModule = createAnonymousModule decls
@@ -186,41 +190,64 @@ let private writeFormated (fragments: CodeFragment list) = async {
             },
             identifiers = Set.empty
         )
-        //|> ParsedInput.ImplFile
-        // Unchecked.defaultof<ParsedImplFileInput>
         |> FCS.Syntax.ParsedInput.ImplFile
 
     //let! wat = CodeFormatter.IsValidASTAsync(input)
-    return! CodeFormatter.FormatASTAsync(input)
+    let! formatted = CodeFormatter.FormatASTAsync(input)
+
+    let firstStatement =
+        [
+            for fragment in fragments do
+                match fragment with
+                | Anonymous body -> None
+                | NamedExpression(_, _, _, range) -> Some(range)
+        ]
+        |> List.tryPick id
+
+    return formatted, firstStatement
 }
 
 
 
-let rec private getUntypedParseTree decl = [
+let rec private getUntypedParseTree (implText: string) decl = [
     match decl with
     // Represents the declaration of a type
-    | FSharpImplementationFileDeclaration.Entity(_entity, decls) ->
+    | FSharpImplementationFileDeclaration.Entity(_entity: FSharpEntity, decls) ->
         for decl in decls do
-            yield! getUntypedParseTree decl
+            yield! getUntypedParseTree implText decl
 
     // Represents the declaration of a member, function or value, including the parameters and body of the member
     | FSharpImplementationFileDeclaration.MemberOrFunctionOrValue(value,
                                                                   args: list<list<FSharpMemberOrFunctionOrValue>>,
                                                                   body: FSharpExpr) ->
-        let IdentPat = value.CompiledName.IdentPat(args |> List.collect id)
+        let name = value.CompiledName
+        //so ugly.
+        //it seems we wont know if the member, function or value is recursive from the typed AST.
+        //but we can find it in the impleText.
+        let isRec = implText.Contains($"let rec %s{name}")
+        let IdentPat = name.IdentPat(args |> List.collect id)
 
-
-        yield (NamedExpression(IdentPat, body.ToUntyped()))
+        yield (NamedExpression(IdentPat, body.ToUntyped(), isRec, value.DeclarationLocation))
 
     | FSharpImplementationFileDeclaration.InitAction body ->
         // Represents the declaration of a static initialization action
         //[ "anon", [], body.ToUntyped() ]
+        test body
         yield (Anonymous(body.ToUntyped()))
 ]
 
 let toLower str = task {
     match! getTypedParseTree str with
-    | Ok([ decls ]) -> return! decls |> getUntypedParseTree |> writeFormated
+    | Ok([ decls ]) ->
+        let! (output, _startRange) = decls |> getUntypedParseTree str |> writeFormated
+        return output
+    | Error s -> return failwithf $"%s{s}"
+    | Ok(l) -> return failwithf "%A" l
+}
+
+let toLowerStart str = task {
+    match! getTypedParseTree str with
+    | Ok([ decls ]) -> return! decls |> getUntypedParseTree str |> writeFormated
     | Error s -> return failwithf $"%s{s}"
     | Ok(l) -> return failwithf "%A" l
 }

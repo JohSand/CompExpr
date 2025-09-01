@@ -5,6 +5,18 @@ open System.IO
 open System.Threading
 open System.Threading.Tasks
 
+type String with
+    member this.NthIndexOf(c: string, n) =
+        let mutable curr = 0
+        let mutable i = -1
+        let mutable cont = true
+        while cont do
+            i <- this.IndexOf(c, i + 1)
+            curr <- curr + 1
+            if curr = n || i = -1  then
+                cont <- false
+        i
+
 let mutable lastFileSize = 0L
 
 let waitOnChanged (watcher: FileSystemWatcher) (t: CancellationToken) =
@@ -22,11 +34,15 @@ let waitOnChanged (watcher: FileSystemWatcher) (t: CancellationToken) =
     watcher.Changed.AddHandler(forwardDeclare)
     tcs.Task
 
-let tryFindOpenStatements (loweredFile: string) (basefile: string) =
-    //let s = loweredFile.IndexOf(Environment.NewLine)
-    let openingLetStmt = loweredFile[0 .. (loweredFile.IndexOf("=") - 1)]
+let tryFindOpenStatements (start: FSharp.Compiler.Text.Range option) (loweredFile: string) (basefile: string) =
+    match start with
+    | Some range -> 
+        basefile[0 .. basefile.NthIndexOf(Environment.NewLine, range.StartLine - 1)]
+    | None ->
+        //let s = loweredFile.IndexOf(Environment.NewLine)
+        let openingLetStmt = loweredFile[0 .. (loweredFile.IndexOf("=") - 1)]
 
-    basefile[0 .. (basefile.IndexOf(openingLetStmt) - 1)]
+        basefile[0 .. (basefile.IndexOf(openingLetStmt) - 1)]
 
 let writeOutput targetFile (txt: string) = task {
     use fs =
@@ -46,8 +62,8 @@ let writeDesugared (path) targetFile = task {
             use reader = new StreamReader(fs)
             let! content = reader.ReadToEndAsync()
             Console.WriteLine("Creating lowered output...")
-            let! pp = TextCompiler.toLower content
-            let opn = tryFindOpenStatements pp content
+            let! (pp, range) = TextCompiler.toLowerStart content
+            let opn = tryFindOpenStatements range pp content 
             do! writeOutput targetFile (opn + pp)
             Console.WriteLine("Wrote lowered output...")
         else
