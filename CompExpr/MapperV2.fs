@@ -269,12 +269,16 @@ type ListExtensions =
 
     [<Extension>]
     static member Tuple(this: SynExpr list) =
-        let commaRanges = [
-            for _ = 1 to this.Length - 1 do
-                Range.Zero
-        ]
+        match this with
+        | [] -> 
+            SynExpr.Const(SynConst.Unit, Range.Zero)
+        | this ->
+            let commaRanges = [
+                for _ = 1 to this.Length - 1 do
+                    Range.Zero
+            ]
 
-        SynExpr.Tuple(false, this, commaRanges, Range.Zero)
+            SynExpr.Tuple(false, this, commaRanges, Range.Zero)
 
     [<Extension>]
     static member LambdaExpr(this: SynExpr, args: SynPat list) =
@@ -416,6 +420,8 @@ type FSharpMemberOrFunctionOrValue with
 type FSharpExpr with
     member this.ToUntyped() : SynExpr =
         match this with
+        | Application(expr, _types, []) ->
+            expr.ToUntyped()
         | Application(expr, _types, args) ->
             let app = expr.ToUntyped()
 
@@ -468,6 +474,34 @@ type FSharpExpr with
         | TupleGet(t, index, (Value value)) ->
             //tupledArg.Item1 is technically correct, but does not work in fsharp
             //so we rewrite it as a destructured let-binding instead. ugly, but seems to work.
+            let totalLength = t.GenericArguments.Count - 1
+
+            let elementPats = [
+                for i in 0..totalLength ->
+                    if i = index then
+                        "value".IdentPat([])
+                    else
+                        SynPat.Wild(Range.Zero)
+            ]
+
+            let tuple =
+                SynPat.Tuple(false, elementPats, [ for _ in 0 .. totalLength - 1 -> Range.Zero ], Range.Zero)
+
+            SynExpr.LetOrUse(
+                isRecursive = false,
+                isUse = false,
+                bindings = [ SynPat.Paren(tuple, Range.Zero).SynBinding(value.LogicalName.IdentExpr()) ],
+                body = "value".IdentExpr(),
+                range = range.Zero,
+                trivia = { InKeyword = Some Range.Zero }
+            )
+
+        | TupleGet(t, index, UnionCaseGet(Value value,_,_,_)) ->
+            //tupledArg.Item1 is technically correct, but does not work in fsharp
+            //so we rewrite it as a destructured let-binding instead. ugly, but seems to work.
+
+            //in theory, we could destructure it earlier, but it requires forward parsing due to
+            //name resolution, so leave as is for now.
             let totalLength = t.GenericArguments.Count - 1
 
             let elementPats = [
