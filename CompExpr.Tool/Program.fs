@@ -5,6 +5,19 @@ open System.IO
 open System.Threading
 open System.Threading.Tasks
 
+type String with
+    member this.NthIndexOf(c: string, n) =
+        let mutable curr = 0
+        let mutable i = -1
+        while curr < n do
+            i <- this.IndexOf(c, i + 1)
+            if i = -1 then
+                curr <- n
+            else
+                curr <- curr + 1
+
+        i
+
 let mutable lastFileSize = 0L
 
 let waitOnChanged (watcher: FileSystemWatcher) (t: CancellationToken) =

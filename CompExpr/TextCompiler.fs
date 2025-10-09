@@ -218,6 +218,15 @@ let rec private getUntypedParseTree decl = [
         yield (Anonymous(body.ToUntyped()))
 ]
 
+let dump str = task {
+    match! getTypedParseTree str with
+    | Ok([ decls ]) ->
+        
+        return sprintf "%A" decls
+    | Error s -> return failwithf $"%s{s}"
+    | Ok(l) -> return failwithf "%A" l
+}
+
 let toLower str = task {
     match! getTypedParseTree str with
     | Ok([ decls ]) -> return! decls |> getUntypedParseTree |> writeFormated
