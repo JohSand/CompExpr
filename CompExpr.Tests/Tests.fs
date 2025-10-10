@@ -682,3 +682,35 @@ let matches() =
     Assert.Matches(e, result2)
     return ()
 }
+
+[<Fact>]
+let ``Handling matches with exhaustive mixed cases`` () = task {
+    let fsharp =
+        "\
+module A
+
+let matches() =
+    let i = 3
+    match Some (1) with
+    | Some _ 
+    | None when i > 3 -> 1
+    | None -> 2
+    | Some _ -> 3"
+
+    let! result = TextCompiler.toLower fsharp
+
+    let e = "\
+let matches () =
+    let i = 3 in
+    let matchValue = Option.Some(1) in
+
+    match matchValue with
+    | None when i > 3 -> 1
+    | None -> 2
+    | _ when i > 3 -> 1
+    | _ -> 3
+"
+
+    Assert.Equal(e, result)
+    return ()
+}

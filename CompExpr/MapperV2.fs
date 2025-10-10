@@ -16,6 +16,15 @@ open Fantomas.FCS.Xml
 open System.Collections.Generic
 
 
+let (|Tree|_|) fsharpExpr =
+    match fsharpExpr with
+    | DecisionTree(MatchCase(guard, case2, case3), nodes) ->               
+        match case2, case3 with
+        | (Jump nodes (names1, case1)), (Jump nodes (names2, case2)) ->
+            Some(guard, names1, case1, names2, case2)
+        | _ -> None
+    | _ -> None
+
 let (|Jump|_|) (nodes: (FSharpMemberOrFunctionOrValue list * FSharpExpr) list) (fsharpExpr: FSharpExpr) =
     match fsharpExpr with
     | DecisionTreeSuccess(i, _) -> Some(nodes[i])
@@ -84,11 +93,15 @@ let (|MatchUnionCase|_|) (nodes: (FSharpMemberOrFunctionOrValue list * FSharpExp
             matchPattern.CreateSynMatchClause(case1.ToUntyped(), guard.ToUntyped())
 
         let clause2 =
-            //slightly random that we would only check case 2...
-            //but observed in practise...
             match case2 with
+            //see if we can inline. but this only inlines so far...
+            | Tree(guard, _, b, _, _) when guard.CompiledName = case.CompiledName ->
+                matchPattern2.CreateSynMatchClause(b.ToUntyped())
+            | Tree(_,_,_,_, d) ->
+                matchPattern2.CreateSynMatchClause(d.ToUntyped())
             | MatchCase(guard, case2, _) when guard.CompiledName = case.CompiledName ->
-                //merge the case
+                matchPattern2.CreateSynMatchClause(case2.ToUntyped())
+            | MatchCase(_, _, case2) ->
                 matchPattern2.CreateSynMatchClause(case2.ToUntyped())
             | _ -> matchPattern2.CreateSynMatchClause(case2.ToUntyped())
 
@@ -759,7 +772,6 @@ type FSharpExpr with
         //or it would be caught above the wildcard.
         //slightly risky.
         | WildCardCase nodes (f, n1, MatchCase(_, _, n2)) ->
-
             yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f.ToUntyped())
             yield SynPat.Wild(range.Zero).CreateSynMatchClause(n2.ToUntyped())
 
@@ -769,7 +781,14 @@ type FSharpExpr with
 
         | Jump nodes (_, e) -> yield! e.GetSynMatchClauses(nodes)
         | Let((names, _, _), result) -> yield names.CompiledName.Named().CreateSynMatchClause(result.ToUntyped())
-        | a -> yield SynPat.Wild(range.Zero).CreateSynMatchClause(a.ToUntyped())
+        //see if we can find an abstraction for this...
+        | IfThenElse(Call(_,guard,_,_,_) as f, (Jump nodes (_, n1)), (Jump nodes (_, Tree(g, a, b, c, d)))) -> 
+            test guard
+            yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f.ToUntyped())
+            yield SynPat.Wild(range.Zero).CreateSynMatchClause(b.ToUntyped())
+
+        | a -> 
+            yield SynPat.Wild(range.Zero).CreateSynMatchClause(a.ToUntyped())
     ]
 
     member fsharpExpr.GetMatchName() : string =
