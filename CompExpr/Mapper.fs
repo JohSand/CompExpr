@@ -771,11 +771,16 @@ type FSharpExpr with
             //for consts
             yield names.CompiledName.Named().CreateSynMatchClause(result.ToUntyped())
 
-        //see if we can find an abstraction for this...
+        //if we get here, we should know the cases...
         | IfThenElse(Call(_, guard, _, _, _) as f, (Jump nodes (_, n1)), (Jump nodes (_, Tree(g, a, b, c, d)))) ->
-            test guard
-            yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f)
-            yield SynPat.Wild(range.Zero).CreateSynMatchClause(b.ToUntyped())
+            match b with
+            //if we have a unioncase get here, we can match against it
+            | Let((names, UnionCaseGet(_, _, c, _), _), result)  ->
+                yield c.LongIdent([ names.CompiledName ]).CreateSynMatchClause(n1.ToUntyped(), f)
+                yield c.LongIdent([ names.CompiledName ]).CreateSynMatchClause(result.ToUntyped())
+            | _ ->
+                yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f)
+                yield SynPat.Wild(range.Zero).CreateSynMatchClause(b.ToUntyped())
 
         | a ->
             test a
