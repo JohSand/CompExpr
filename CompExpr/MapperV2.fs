@@ -4,9 +4,6 @@ open FSharp.Compiler
 open FSharp.Compiler.CodeAnalysis
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Symbols.FSharpExprPatterns
-// open FSharp.Compiler.Syntax
-// open FSharp.Compiler.SyntaxTrivia
-// open FSharp.Compiler.Text
 
 open Fantomas.FCS.Syntax
 open Fantomas.FCS.SyntaxTrivia
@@ -18,21 +15,128 @@ open System
 open Fantomas.FCS.Xml
 open System.Collections.Generic
 
+
+let (|Jump|_|) (nodes: (FSharpMemberOrFunctionOrValue list * FSharpExpr) list) (fsharpExpr: FSharpExpr) =
+    match fsharpExpr with
+    | DecisionTreeSuccess(i, _) -> Some(nodes[i])
+    | _ -> None
+
+let (|LetBound|_|) (fsharpExpr: FSharpExpr) =
+    let rec letBound (fsharpExpr: FSharpExpr) acc =
+        match fsharpExpr with
+        | Call _
+        | Const _
+        | Value _ -> Some(acc, fsharpExpr)
+        | Let((f, UnionCaseGet(_), _), node) -> letBound node (f.CompiledName :: acc)
+        | Let((f, TupleGet(_), _), node) -> letBound node (f.CompiledName :: acc)
+        | _ -> None
+
+    letBound fsharpExpr []
+
+let (|MatchCase|_|) (fsharpExpr: FSharpExpr) =
+    match fsharpExpr with
+    | IfThenElse(UnionCaseTest(_, _, unionCase), thenCase, elseCase) -> Some(unionCase, thenCase, elseCase)
+    | _ -> None
+
+let (|DirectMatch|_|) (nodes: (FSharpMemberOrFunctionOrValue list * FSharpExpr) list) (fsharpExpr: FSharpExpr) =
+    match fsharpExpr with
+    | IfThenElse(Call(_) as guard, (Jump nodes (_, n1)), n2) -> Some(guard, n1, n2)
+    | _ -> None
+
+let (|WildCardCase|_|) (nodes: (FSharpMemberOrFunctionOrValue list * FSharpExpr) list) (fsharpExpr: FSharpExpr) =
+    match fsharpExpr with
+    | IfThenElse(Call(_) as guard, (Jump nodes (_, n1)), (Jump nodes (_, n2))) -> Some(guard, n1, n2)
+    | _ -> None
+
+
+let (|MatchUnionCase|_|) (nodes: (FSharpMemberOrFunctionOrValue list * FSharpExpr) list) (fsharpExpr: FSharpExpr) =
+    //terminal node directly from a UnionCaseTest
+    match fsharpExpr with
+    | MatchCase(case, (Const(i, _xz) as node), elseCase) ->
+        let matchPattern = case.LongIdent() //mkMatchPattern case []
+        //and use these as names in the match.
+        //then we can remove unneeded let-bindings.
+        let clause = matchPattern.CreateSynMatchClause(node.ToUntyped())
+
+        Some(clause, None, elseCase)
+
+    | MatchCase(case, (Jump nodes (_, LetBound(names, node))), elseCase) ->
+        //have the case-name.
+        //by resolving the bound node, we can find the names that are in scope
+        let matchPattern = case.LongIdent(names)
+        //and use these as names in the match.
+        //then we can remove unneeded let-bindings.
+        let clause = matchPattern.CreateSynMatchClause(node.ToUntyped())
+        Some(clause, None, elseCase)
+
+    //the when-case
+    | MatchCase(case, IfThenElse(LetBound(_, guard), (Jump nodes (names1, case1)), (Jump nodes (names2, case2))), rest) ->
+        //case when guard is ok.
+        //if the end-node here is another if-else or union-case-test, not sure we can generate good code.
+        //so assume that does not happen.
+
+        let matchPattern = case.LongIdent [ for a in names1 -> a.CompiledName ]
+        //and use these as names in the match.
+        //then we can remove unneeded let-bindings.
+        let matchPattern2 = case.LongIdent [ for a in names2 -> a.CompiledName ]
+
+        let clause1 =
+            matchPattern.CreateSynMatchClause(case1.ToUntyped(), guard.ToUntyped())
+
+        let clause2 =
+            //slightly random that we would only check case 2...
+            //but observed in practise...
+            match case2 with
+            | MatchCase(guard, case2, _) when guard.CompiledName = case.CompiledName ->
+                //merge the case
+                matchPattern2.CreateSynMatchClause(case2.ToUntyped())
+            | _ -> matchPattern2.CreateSynMatchClause(case2.ToUntyped())
+
+        Some(clause1, Some clause2, rest)
+    | _ -> None
+
+
+let (|Equality|_|) (expr: FSharpMemberOrFunctionOrValue) =
+    if expr.CompiledName = "op_Equality" then Some() else None
+
+let (|EqualityCall|_|) =
+    function
+    | Call(None, Equality, [], _, [ Value(_); Const(v, t) ]) -> Some(v)
+    | _ -> None
+
+let test (a: obj) = ignore a
+
 let mkRange (r: Text.Range) =
     Range.mkRange r.FileName (Position.mkPos r.StartLine (r.StartColumn)) (Position.mkPos r.EndLine (r.EndColumn))
 
 let mkRange2 a b c d =
     Range.mkRange "garb.fsx" (Position.mkPos a b) (Position.mkPos c d)
 
+
+type System.Object with
+    member this.ToSynConst() =
+        match this with
+        | :? unit -> SynConst.Unit
+        | :? bool as b -> SynConst.Bool b
+        | :? sbyte as b -> SynConst.SByte b
+        | :? byte as b -> SynConst.Byte b
+        | :? int16 as i -> SynConst.Int16 i
+        | :? int32 as i -> SynConst.Int32 i
+        | :? int64 as i -> SynConst.Int64 i
+        | :? uint64 as i -> SynConst.UInt64 i
+        | :? string as s -> SynConst.String(s, SynStringKind.Regular, Range.Zero)
+        | :? single as b -> SynConst.Single b
+        | :? double as b -> SynConst.Double b
+        | :? char as b -> SynConst.Char b
+        | :? Decimal as b -> SynConst.Decimal b
+        | :? (byte array) as arr -> SynConst.Bytes(arr, SynByteStringKind.Regular, Range.Zero)
+        | _ -> failwith ""
+
 type SynExprMatchTrivia with
     static member Empty: SynExprMatchTrivia = {
         SynExprMatchTrivia.WithKeyword = range.Zero
         SynExprMatchTrivia.MatchKeyword = range.Zero
     }
-// type SynExprSequentialTrivia with
-//     static member Empty : SynExprSequentialTrivia =
-//         { SynExprSequentialTrivia.SeparatorRange = None;
-//          }
 
 type SynBindingReturnInfoTrivia with
     static member Empty: SynBindingReturnInfoTrivia = {
@@ -398,18 +502,16 @@ type FSharpMemberOrFunctionOrValue with
         else
             this.LogicalName.Named()
 
-    // member value.createBinding body =
-    //     value.Named().SynBinding2(body, value.IsMutable)
-
-
     member f.LongIdent() =
         if f.ApparentEnclosingEntity.IsFSharpModule then
             //static call, no args
-            if f.ApparentEnclosingEntity.HasAttribute<AutoOpenAttribute>() then
-                //caller.ApparentEnclosingEntity
+            if
+                f.ApparentEnclosingEntity.HasAttribute<AutoOpenAttribute>()
+                || f.ApparentEnclosingEntity.AllCompilationPaths.IsEmpty
+            then
                 f.LogicalName.LongIdentExpr()
             else
-                [ f.ApparentEnclosingEntity.CompiledName; f.LogicalName ].LongIdent()
+                [ f.ApparentEnclosingEntity.DisplayName; f.LogicalName ].LongIdent()
         else if f.IsPropertyGetterMethod then
             [ f.ApparentEnclosingEntity.CompiledName; f.CompiledName.Replace("get_", "") ]
                 .LongIdent()
@@ -430,26 +532,7 @@ type FSharpExpr with
             else
                 app.Apply(args.Tuple())
         | Lambda(args, expr) -> expr.ToUntyped().LambdaExpr(args.GetArgs())
-        | Const(c, _a) ->
-            let con =
-                match c with
-                | :? unit -> SynConst.Unit
-                | :? bool as b -> SynConst.Bool b
-                | :? sbyte as b -> SynConst.SByte b
-                | :? byte as b -> SynConst.Byte b
-                | :? int16 as i -> SynConst.Int16 i
-                | :? int32 as i -> SynConst.Int32 i
-                | :? int64 as i -> SynConst.Int64 i
-                | :? uint64 as i -> SynConst.UInt64 i
-                | :? string as s -> SynConst.String(s, SynStringKind.Regular, Range.Zero)
-                | :? single as b -> SynConst.Single b
-                | :? double as b -> SynConst.Double b
-                | :? char as b -> SynConst.Char b
-                | :? Decimal as b -> SynConst.Decimal b
-                | :? (byte array) as arr -> SynConst.Bytes(arr, SynByteStringKind.Regular, Range.Zero)
-                | _ -> failwith ""
-
-            SynExpr.Const(con, Range.Zero)
+        | Const(c, _a) -> SynExpr.Const(c.ToSynConst(), Range.Zero)
 
         | Let((letBoundName, ex1, dbg: Syntax.DebugPointAtBinding), ex2) ->
             let inKeyword =
@@ -474,6 +557,9 @@ type FSharpExpr with
         | TupleGet(t, index, (Value value)) ->
             //tupledArg.Item1 is technically correct, but does not work in fsharp
             //so we rewrite it as a destructured let-binding instead. ugly, but seems to work.
+
+            //in theory, we could destructure it earlier, but it requires forward parsing due to
+            //name resolution, so leave as is for now.
             let totalLength = t.GenericArguments.Count - 1
 
             let elementPats = [
@@ -496,7 +582,7 @@ type FSharpExpr with
                 trivia = { InKeyword = Some Range.Zero }
             )
 
-        | TupleGet(t, index, UnionCaseGet(Value value,_,_,_)) ->
+        | TupleGet(t, index, UnionCaseGet(Value value, _, _, _)) ->
             //tupledArg.Item1 is technically correct, but does not work in fsharp
             //so we rewrite it as a destructured let-binding instead. ugly, but seems to work.
 
@@ -576,18 +662,37 @@ type FSharpExpr with
         | Quote(expr) ->
             let inner = expr.ToUntyped()
             SynExpr.Quote(inner, false, inner, false, range.Zero)
-        | NewRecord(t, exprs) ->
+
+        | NewAnonRecord(t, exprs) ->
             let records = [
-                for (m, r) in exprs |> Seq.zip t.TypeDefinition.FSharpFields do
-                    SynExprRecordField.SynExprRecordField(
-                        fieldName = m.Name.RecordFieldName(),
-                        equalsRange = None,
-                        expr = Some(r.ToUntyped()),
-                        blockSeparator = None
-                    )
+                for (m, r) in exprs |> Seq.zip t.AnonRecordTypeDetails.SortedFieldNames ->
+                    (m.LongIdentWithDots(), Some(Range.Zero), r.ToUntyped())
             ]
 
-            SynExpr.Record(None, None, records, range.Zero)
+            SynExpr.AnonRecd(
+                false,
+                copyInfo = None,
+                recordFields = records,
+                range = Range.Zero,
+                trivia = { OpeningBraceRange = Range.Zero }
+            )
+        | NewRecord(t, exprs) ->
+            match t.BaseType with
+            | Some b when  b.BasicQualifiedName = "Microsoft.FSharp.Core.exn" -> 
+                //maybe qualify, but rather not.
+                [ t.TypeDefinition.CompiledName ].LongIdent().Apply(exprs)
+            | _ ->
+                let records = [
+                    for (m, r) in exprs |> Seq.zip t.TypeDefinition.FSharpFields do
+                        SynExprRecordField.SynExprRecordField(
+                            fieldName = m.Name.RecordFieldName(),
+                            equalsRange = Some(Range.Zero),
+                            expr = Some(r.ToUntyped()),
+                            blockSeparator = None
+                        )
+                ]
+
+                SynExpr.Record(baseInfo = None, copyInfo = None, recordFields = records, range = Range.Zero)
         | UnionCaseGet(_expr, _typ, _case, field) -> field.Name.IdentExpr()
 
         | FSharpFieldGet(Some(Value caller), _typ, field: FSharpField) ->
@@ -638,78 +743,67 @@ type FSharpExpr with
             )
         | a -> "invalidArg".Apply("fsharpExpr").Apply(sprintf "%A." a)
 
-    member fsharpExpr.GetSynMatchClauses(result: (_ * FSharpExpr) list) = [
+    member fsharpExpr.GetSynMatchClauses(nodes: (_ * FSharpExpr) list) = [
         match fsharpExpr with
-        | DecisionTreeSuccess(i, _xz) -> yield SynPat.Wild(range.Zero).CreateSynMatchClause(result[i])
 
-        | IfThenElse(UnionCaseTest(Value _, _typ, case), thenExpr, Call(_)) ->
-            //match clause?
-            yield case.CreateSynMatchClause(thenExpr.ToUntyped())
+        | MatchUnionCase nodes (clause1, Some clause2, rest2) ->
+            yield clause1
+            yield clause2
+            yield! rest2.GetSynMatchClauses(nodes)
 
-        | IfThenElse(UnionCaseTest(Value _expr, _typ, case), DecisionTreeSuccess(i, _), rest) ->
-            yield case.CreateSynMatchClause(result[i])
+        | MatchUnionCase nodes (clause, None, rest) ->
+            yield clause
+            yield! rest.GetSynMatchClauses(nodes)
 
-            yield! rest.GetSynMatchClauses(result)
+        //if we end up in a wildcard, with an inner match, we assume the match must fail here
+        //or it would be caught above the wildcard.
+        //slightly risky.
+        | WildCardCase nodes (f, n1, MatchCase(_, _, n2)) ->
 
-        | IfThenElse(UnionCaseTest(Value _expr, _typ, case),
-                     IfThenElse(ifExpr, DecisionTreeSuccess(case1, _), DecisionTreeSuccess(case2, _)),
-                     rest) ->
-            let letResult = ifExpr.LetOrUse(result[case1])
-            yield case.CreateSynMatchClause(letResult, ifExpr.ToUntyped())
+            yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f.ToUntyped())
+            yield SynPat.Wild(range.Zero).CreateSynMatchClause(n2.ToUntyped())
 
-            yield case.CreateSynMatchClause(ifExpr.LetOrUse(result[case2]))
+        | DirectMatch nodes (EqualityCall v, n1, rest) ->
+            yield v.ToString().Named().CreateSynMatchClause(n1.ToUntyped())
+            yield! rest.GetSynMatchClauses(nodes)
 
-            yield! rest.GetSynMatchClauses(result)
-        | Const(_) as _c -> ()
-        | _ -> failwith "unknown decision-tree option"
+        | Jump nodes (_, e) -> yield! e.GetSynMatchClauses(nodes)
+        | Let((names, _, _), result) -> yield names.CompiledName.Named().CreateSynMatchClause(result.ToUntyped())
+        | a -> yield SynPat.Wild(range.Zero).CreateSynMatchClause(a.ToUntyped())
     ]
-
-    member ifExpr.LetOrUse((_, thenExpr): _ * FSharpExpr) : SynExpr =
-        SynExpr.LetOrUse(
-            false,
-            false,
-            [ ifExpr.GetBoundName().Named().SynBinding(ifExpr.GetCaseName().IdentExpr()) ],
-            (thenExpr.ToUntyped()),
-            range.Zero,
-            { InKeyword = Some(range.Zero) }
-        )
-
 
     member fsharpExpr.GetMatchName() : string =
         match fsharpExpr with
+        | IfThenElse(Call(None, Equality, [], _, [ Value(expr); Const(_, _) ]), DecisionTreeSuccess(_, _), _)
         | IfThenElse(UnionCaseTest(Value expr, _, _), _, _) -> expr.CompiledName
-        | _ -> "failed to resolve name"
-
-    member fsharpExpr.GetCaseName() : string =
-        match fsharpExpr with
-        | Let((_, UnionCaseGet(_expr, _typ, _case, field), _), _) -> field.Name
-        | _ -> "failed to get name of binding"
-
-    member fsharpExpr.GetBoundName() : string =
-        match fsharpExpr with
-        | Let((v, _, _), _) -> v.CompiledName
-        | _ -> "failed to get name of binding"
+        | _ -> "failed to find match name"
 
 type FSharpUnionCase with
-    member this.GetPats() =
-        if this.HasFields then
-            [
-                SynPat.Paren(
-                    SynPat.Tuple(false, [ for f in this.Fields -> f.Name.Named() ], [], range.Zero),
-                    range.Zero
-                )
-            ]
-        else
-            []
-        |> SynArgPats.Pats
+    member unionCase.LongIdent(?names: string list) : SynPat =
+        let names = names |> Option.defaultValue []
 
-    member unionCase.LongIdent() : SynPat =
+        let synPat =
+            if List.isEmpty names then
+                //dont generate a wildcard for unions with 0 fields.
+                if unionCase.Fields.Count = 0 then
+                    []
+                else
+                    [ SynPat.Wild(Range.Zero) ]
+            else
+                let commaRanges = List.init (names.Length - 1) (fun _ -> Range.Zero)
+
+                let elements = names |> List.map _.Named()
+
+                [
+                    SynPat.Paren(SynPat.Tuple(false, elements, commaRanges, range.Zero), range.Zero)
+                ]
+
         SynPat.LongIdent(
             longDotId = unionCase.CompiledName.LongIdentWithDots(),
             //propertyKeyword = None,
             extraId = None,
             typarDecls = None,
-            argPats = unionCase.GetPats(),
+            argPats = SynArgPats.Pats(synPat),
             accessibility = None,
             range = range.Zero
         )
