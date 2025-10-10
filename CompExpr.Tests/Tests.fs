@@ -714,3 +714,63 @@ let matches () =
     Assert.Equal(e, result)
     return ()
 }
+
+[<Fact>]
+let ``Handling destructor matches with exhaustive mixed cases`` () = task {
+    let fsharp =
+        "\
+module A
+
+let matches() =
+    let i = 3
+    match Some (1) with
+    | Some y -> y
+    | None when i > 3 -> 1
+    | None -> 2"
+
+    let! result = TextCompiler.toLower fsharp
+
+    let e = "\
+let matches () =
+    let i = 3 in
+    let matchValue = Option.Some(1) in
+
+    match matchValue with
+    | None when i > 3 -> 1
+    | None -> 2
+    | Some(y) -> y
+"
+
+    Assert.Equal(e, result)
+    return ()
+}
+
+[<Fact>]
+let ``Handling non-destructor matches with exhaustive mixed cases`` () = task {
+    let fsharp =
+        "\
+module A
+
+let matches() =
+    let i = 3
+    match Some (1) with
+    | Some _ -> 3
+    | None when i > 3 -> 1
+    | None -> 2"
+
+    let! result = TextCompiler.toLower fsharp
+
+    let e = "\
+let matches () =
+    let i = 3 in
+    let matchValue = Option.Some(1) in
+
+    match matchValue with
+    | None when i > 3 -> 1
+    | None -> 2
+    | _ -> 3
+"
+
+    Assert.Equal(e, result)
+    return ()
+}
