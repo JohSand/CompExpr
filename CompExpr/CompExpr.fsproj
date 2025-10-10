@@ -3,7 +3,7 @@
         <TargetFramework>net8.0</TargetFramework>
     </PropertyGroup>
     <ItemGroup>
-        <Compile Include="MapperV2.fs" />
+        <Compile Include="Mapper.fs" />
         <None Include="TestMe.fsx" CopyToOutputDirectory="PreserveNewest" />
         <Compile Include="Extensions.fs" />
         <Compile Include="TextCompiler.fs" />

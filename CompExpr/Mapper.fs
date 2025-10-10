@@ -18,10 +18,9 @@ open System.Collections.Generic
 
 let (|Tree|_|) fsharpExpr =
     match fsharpExpr with
-    | DecisionTree(MatchCase(guard, case2, case3), nodes) ->               
+    | DecisionTree(MatchCase(guard, case2, case3), nodes) ->
         match case2, case3 with
-        | (Jump nodes (names1, case1)), (Jump nodes (names2, case2)) ->
-            Some(guard, names1, case1, names2, case2)
+        | (Jump nodes (names1, case1)), (Jump nodes (names2, case2)) -> Some(guard, names1, case1, names2, case2)
         | _ -> None
     | _ -> None
 
@@ -89,20 +88,17 @@ let (|MatchUnionCase|_|) (nodes: (FSharpMemberOrFunctionOrValue list * FSharpExp
         //then we can remove unneeded let-bindings.
         let matchPattern2 = case.LongIdent [ for a in names2 -> a.CompiledName ]
 
-        let clause1 =
-            matchPattern.CreateSynMatchClause(case1.ToUntyped(), guard.ToUntyped())
+        let clause1 = matchPattern.CreateSynMatchClause(case1, guard)
 
         let clause2 =
             match case2 with
             //see if we can inline. but this only inlines so far...
             | Tree(guard, _, b, _, _) when guard.CompiledName = case.CompiledName ->
                 matchPattern2.CreateSynMatchClause(b.ToUntyped())
-            | Tree(_,_,_,_, d) ->
-                matchPattern2.CreateSynMatchClause(d.ToUntyped())
+            | Tree(_, _, _, _, d) -> matchPattern2.CreateSynMatchClause(d.ToUntyped())
             | MatchCase(guard, case2, _) when guard.CompiledName = case.CompiledName ->
                 matchPattern2.CreateSynMatchClause(case2.ToUntyped())
-            | MatchCase(_, _, case2) ->
-                matchPattern2.CreateSynMatchClause(case2.ToUntyped())
+            | MatchCase(_, _, case2) -> matchPattern2.CreateSynMatchClause(case2.ToUntyped())
             | _ -> matchPattern2.CreateSynMatchClause(case2.ToUntyped())
 
         Some(clause1, Some clause2, rest)
@@ -118,13 +114,6 @@ let (|EqualityCall|_|) =
     | _ -> None
 
 let test (a: obj) = ignore a
-
-let mkRange (r: Text.Range) =
-    Range.mkRange r.FileName (Position.mkPos r.StartLine (r.StartColumn)) (Position.mkPos r.EndLine (r.EndColumn))
-
-let mkRange2 a b c d =
-    Range.mkRange "garb.fsx" (Position.mkPos a b) (Position.mkPos c d)
-
 
 type System.Object with
     member this.ToSynConst() =
@@ -254,13 +243,13 @@ type SynPat with
             }
         )
 
-    member pat.CreateSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
+    member pat.CreateSynMatchClause(result: FSharpExpr, ?whenExpr) =
         pat.CreateSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
 
-    member pat.CreateSynMatchClause(result: SynExpr, ?whenExpr) =
+    member pat.CreateSynMatchClause(result: SynExpr, ?whenExpr: FSharpExpr) =
         SynMatchClause(
             pat = pat,
-            whenExpr = whenExpr,
+            whenExpr = (whenExpr |> Option.map _.ToUntyped()),
             resultExpr = result,
             range = range.Zero,
             debugPoint = DebugPointAtTarget.No,
@@ -356,10 +345,7 @@ type SynExpr with
 
         match this with
         | SynExpr.LongIdent(_, SynLongIdent(ids, _, _), _, _) ->
-            let dotRanges = [
-                for _ = 1 to ids.Length do
-                    Range.Zero
-            ]
+            let dotRanges = List.replicate ids.Length Range.Zero
 
             SynExpr.LongIdent(false, SynLongIdent(ids @ [ i ], dotRanges, []), None, Range.Zero)
 
@@ -387,13 +373,9 @@ type ListExtensions =
     [<Extension>]
     static member Tuple(this: SynExpr list) =
         match this with
-        | [] -> 
-            SynExpr.Const(SynConst.Unit, Range.Zero)
+        | [] -> SynExpr.Const(SynConst.Unit, Range.Zero)
         | this ->
-            let commaRanges = [
-                for _ = 1 to this.Length - 1 do
-                    Range.Zero
-            ]
+            let commaRanges = List.init (this.Length - 1) (fun _ -> Range.Zero)
 
             SynExpr.Tuple(false, this, commaRanges, Range.Zero)
 
@@ -471,15 +453,13 @@ module List =
 
 type FSharpType with
     member fullType.Tuple() =
-        let types = [
-            for t in fullType.GenericArguments -> SynTupleTypeSegment.Type(t.ToSynType())
-        ]
+        let types =
+            fullType.GenericArguments
+            |> Seq.toList
+            |> List.map (fun t -> SynTupleTypeSegment.Type(t.ToSynType()))
+            |> List.intersperse (SynTupleTypeSegment.Star(Range.Zero))
 
-        SynType.Tuple(
-            fullType.IsStructTupleType,
-            types |> List.intersperse (SynTupleTypeSegment.Star(Range.Zero)),
-            Range.Zero
-        )
+        SynType.Tuple(fullType.IsStructTupleType, types, Range.Zero)
 
     member fsType.ToSynType() : SynType =
         if fsType.IsGenericParameter then
@@ -535,8 +515,7 @@ type FSharpMemberOrFunctionOrValue with
 type FSharpExpr with
     member this.ToUntyped() : SynExpr =
         match this with
-        | Application(expr, _types, []) ->
-            expr.ToUntyped()
+        | Application(expr, _types, []) -> expr.ToUntyped()
         | Application(expr, _types, args) ->
             let app = expr.ToUntyped()
 
@@ -550,7 +529,12 @@ type FSharpExpr with
         | Let((letBoundName, ex1, dbg: Syntax.DebugPointAtBinding), ex2) ->
             let inKeyword =
                 match dbg with
-                | Syntax.DebugPointAtBinding.Yes(r) -> mkRange r |> Some
+                | Syntax.DebugPointAtBinding.Yes(r) ->
+                    Range.mkRange
+                        r.FileName
+                        (Position.mkPos r.StartLine (r.StartColumn))
+                        (Position.mkPos r.EndLine (r.EndColumn))
+                    |> Some
                 | _ -> None
 
             let r = Option.defaultValue range.Zero inKeyword
@@ -691,7 +675,7 @@ type FSharpExpr with
             )
         | NewRecord(t, exprs) ->
             match t.BaseType with
-            | Some b when  b.BasicQualifiedName = "Microsoft.FSharp.Core.exn" -> 
+            | Some b when b.BasicQualifiedName = "Microsoft.FSharp.Core.exn" ->
                 //maybe qualify, but rather not.
                 [ t.TypeDefinition.CompiledName ].LongIdent().Apply(exprs)
             | _ ->
@@ -746,13 +730,11 @@ type FSharpExpr with
             let clauses = ifElse.GetSynMatchClauses(nodes)
 
             SynExpr.Match(
-                //  range.Zero,
                 DebugPointAtBinding.NoneAtInvisible,
                 SynExpr.Ident(Ident(ifElse.GetMatchName(), range.Zero)),
                 clauses,
                 range.Zero,
                 SynExprMatchTrivia.Empty
-
             )
         | a -> "invalidArg".Apply("fsharpExpr").Apply(sprintf "%A." a)
 
@@ -772,7 +754,7 @@ type FSharpExpr with
         //or it would be caught above the wildcard.
         //slightly risky.
         | WildCardCase nodes (f, n1, MatchCase(_, _, n2)) ->
-            yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f.ToUntyped())
+            yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f)
             yield SynPat.Wild(range.Zero).CreateSynMatchClause(n2.ToUntyped())
 
         | DirectMatch nodes (EqualityCall v, n1, rest) ->
@@ -781,21 +763,21 @@ type FSharpExpr with
             yield! rest.GetSynMatchClauses(nodes)
 
         | Jump nodes (_, e) -> yield! e.GetSynMatchClauses(nodes)
-        | Let((names, UnionCaseGet(_,_,c,_), _), result) -> 
+        | Let((names, UnionCaseGet(_, _, c, _), _), result) ->
             //if we have a unioncase get here, we can match against it
             yield c.LongIdent([ names.CompiledName ]).CreateSynMatchClause(result.ToUntyped())
 
-        | Let((names, _, _), result) -> 
+        | Let((names, _, _), result) ->
             //for consts
             yield names.CompiledName.Named().CreateSynMatchClause(result.ToUntyped())
 
         //see if we can find an abstraction for this...
-        | IfThenElse(Call(_,guard,_,_,_) as f, (Jump nodes (_, n1)), (Jump nodes (_, Tree(g, a, b, c, d)))) -> 
+        | IfThenElse(Call(_, guard, _, _, _) as f, (Jump nodes (_, n1)), (Jump nodes (_, Tree(g, a, b, c, d)))) ->
             test guard
-            yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f.ToUntyped())
+            yield SynPat.Wild(range.Zero).CreateSynMatchClause(n1.ToUntyped(), f)
             yield SynPat.Wild(range.Zero).CreateSynMatchClause(b.ToUntyped())
 
-        | a -> 
+        | a ->
             test a
             yield SynPat.Wild(range.Zero).CreateSynMatchClause(a.ToUntyped())
     ]
@@ -821,10 +803,9 @@ type FSharpUnionCase with
                 let commaRanges = List.init (names.Length - 1) (fun _ -> Range.Zero)
 
                 let elements = names |> List.map _.Named()
-
-                [
-                    SynPat.Paren(SynPat.Tuple(false, elements, commaRanges, range.Zero), range.Zero)
-                ]
+                
+                SynPat.Paren(SynPat.Tuple(false, elements, commaRanges, range.Zero), range.Zero)
+                |> List.singleton
 
         SynPat.LongIdent(
             longDotId = unionCase.CompiledName.LongIdentWithDots(),
@@ -835,10 +816,3 @@ type FSharpUnionCase with
             accessibility = None,
             range = range.Zero
         )
-
-    member pat.CreateSynMatchClause((_, result): _ * FSharpExpr, ?whenExpr) =
-        pat.CreateSynMatchClause(result.ToUntyped(), ?whenExpr = whenExpr)
-
-    member pat.CreateSynMatchClause(result: SynExpr, ?whenExpr) =
-        let pattern = pat.LongIdent()
-        pattern.CreateSynMatchClause(result, ?whenExpr = whenExpr)
