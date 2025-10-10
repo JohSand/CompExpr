@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "CompExpr.Tool": {
+      "commandName": "Project",
+      "commandLineArgs": " --working-directory C:\\Projects\\Scripts\\compexpr"
+    }
+  }
+}

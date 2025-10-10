@@ -95,6 +95,34 @@ let ``Test tupled method call`` () = task {
 }
 
 [<Fact>]
+let ``Test anon record`` () = task {
+    let fsharp = "\
+let test () =
+    {| z = false; i = 69 |}
+"
+    let! result = TextCompiler.toLower fsharp
+    let expected = "\
+let test () =
+    let z = false
+    {| i = 69; z = z |}
+"
+    do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
+}
+
+[<Fact>]
+let ``Test basic record`` () = task {
+    let fsharp = "\
+open Fantomas.FCS.SyntaxTrivia
+open Fantomas.FCS.Text
+let test () =
+    { OpeningBraceRange = Range.Zero }
+"
+    let! result = TextCompiler.toLower fsharp
+    do Assert.Equal("let test () = { OpeningBraceRange = Range.Zero }\r\n", result, ignoreLineEndingDifferences = true)
+}
+
+
+[<Fact>]
 let ``Test plus operator`` () = task {
     let fsharp = Code.toText (1 + 2 + 3)
     let! result = TextCompiler.toLower fsharp
@@ -221,7 +249,38 @@ let ``Test match call`` () = task {
     let fsharp = "let a () = match 1 with a -> a"
     let! result = TextCompiler.toLower fsharp
 
-    let expected = $"let a () = let a = 1 in a{Environment.NewLine}"
+    let expected = 
+        "let a () = let a = 1 in a\r\n"
+
+    do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
+}
+
+[<Fact>]
+let ``Test match bool`` () = task {
+    let fsharp = "let a () = match true with | true -> 1 | false -> 2"
+    let! result = TextCompiler.toLower fsharp
+
+    let expected = 
+        "let a () =\r\n    let matchValue = true in if matchValue then 1 else 2\r\n"
+
+    do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
+}
+
+[<Fact>]
+let ``Test match ints`` () = task {
+    let fsharp = "let a () = match 1 with | 1 -> 9 | 2 -> 2 | i -> i"
+    let! result = TextCompiler.toLower fsharp
+
+    let expected = 
+        "\
+let a () =
+    let matchValue = 1 in
+
+    match matchValue with
+    | 1 -> 9
+    | 2 -> 2
+    | i -> i
+"
 
     do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
 }
@@ -237,16 +296,30 @@ let a () =
     let matchValue = Option.None in
 
     match matchValue with
-    | Some(Value) ->
-        let x = Value
-        x
+    | Some(x) -> x
     | _ -> 1
 "
 
     do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
 }
 
+[<Fact>]
+let ``Test match call2 and tuple`` () = task {
+    let fsharp = "let a () = match None with | None -> 1 | Some (x: int, y: int) -> x"
+    let! result = TextCompiler.toLower fsharp
 
+    let expected =
+        "\
+let a () =
+    let matchValue = Option.None in
+
+    match matchValue with
+    | Some(x, y) -> x
+    | _ -> 1
+"
+
+    do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
+}
 
 [<Fact>]
 let ``Test match call3`` () = task {
@@ -261,8 +334,8 @@ let a () =
     let matchValue = Choice.Choice1Of3() in
 
     match matchValue with
-    | Choice2Of3(Item) -> 2
-    | Choice3Of3(Item) -> 3
+    | Choice2Of3 _ -> 2
+    | Choice3Of3 _ -> 3
     | _ -> 1
 "
 
@@ -281,13 +354,32 @@ let ``Test match call3 when case`` () = task {
 let matchValue = Option.None in
 
 match matchValue with
-| Some(Value) when
-    let x = Value
-    x > 1
-    ->
-    let x = Value in x
-| Some(Value) ->
-    let x = Value in
+| Some(x) when x > 1 -> x
+| Some(x) ->
+    ignore (x)
+    2
+| _ -> 1
+"
+
+    do Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
+}
+
+let asda = match None with | None -> 1 | Some (x: int, y: int) when x > 1 -> x | Some (x, y) -> let _ = ignore x in y
+
+[<Fact>]
+let ``Test match call3 when case and tuple`` () = task {
+    let fsharp =
+        "match None with | None -> 1 | Some (x: int, y: int) when x > 1 -> x | Some (x, z) -> let _ = ignore x in 2"
+
+    let! result = TextCompiler.toLower fsharp
+
+    let expected =
+        "\
+let matchValue = Option.None in
+
+match matchValue with
+| Some(x, y) when x > 1 -> x
+| Some(x, z) ->
     ignore (x)
     2
 | _ -> 1
@@ -396,6 +488,7 @@ let e (s: SemaphoreSlim) =
 open System.Threading
 open System.Threading.Tasks
 open System.Collections.Generic
+open System.Text.RegularExpressions
 
 let ex (s: IAsyncEnumerable<'a>) (f) (builder: TaskBuilder) =
     (fun (builder: TaskBuilder) ->
@@ -532,7 +625,7 @@ let e () =
 }
 
 [<Fact>]
-let ``Abcd`` () = task {
+let ``Handle recursive computation expressions`` () = task {
     let fsharp =
         "\
 module A
@@ -546,16 +639,16 @@ let rec fib x = tramp {
 
     let expected =
         "\
-let fib (x: int) =
+let rec fib (x: int) =
     (fun (builder: TrampolineBuilder) ->
         builder.Delay(fun () ->
             builder.Bind(
-                A.fib (x - 1),
+                fib (x - 1),
                 fun (_arg1: int) ->
                     let a = _arg1
 
                     builder.Bind(
-                        A.fib (x - 2),
+                        fib (x - 2),
                         fun (_arg2: int) ->
                             let b = _arg2
                             builder.Return(a + b)
@@ -566,5 +659,26 @@ let fib (x: int) =
 
     let! result = TextCompiler.toLower fsharp
     Assert.Equal(expected, result, ignoreLineEndingDifferences = true)
+    return ()
+}
+
+[<Fact>]
+let ``Handling matches with mixed cases`` () = task {
+    let fsharp =
+        "\
+module A
+
+let matches() =
+    let i = 3
+    match Some (1) with
+    | Some _ 
+    | None when i > 3 -> 1
+    | None -> 2"
+
+    let! result = TextCompiler.toLower fsharp
+    let result2 = result.Replace(Environment.NewLine, "")
+    let e = """(?s)^let matches \(\) =\s+let i = 3 in\s+let matchValue = Option\.Some\(1\) in\s+match matchValue with\s+\| None when i > 3 -> 1\s+\| None -> 2\s+\| _ when i > 3 -> 1\s+\| _ -> raise \(MatchFailureException\("[^"]+\.fsx", 5, 10\)\)$"""
+
+    Assert.Matches(e, result2)
     return ()
 }
